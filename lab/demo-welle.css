@@ -1,0 +1,6 @@
+/* Vorschlag: gleichmäßig von knapp links außerhalb bis knapp rechts außerhalb, ausgeblendet erst draußen */
+.block-wave { position: fixed; inset: 0; z-index: 999; pointer-events: none; opacity: 0;
+  background: linear-gradient(100deg, transparent 0%, transparent 38%, rgba(247,147,26,.55) 48%, rgba(247,147,26,.85) 50%, rgba(247,147,26,.55) 52%, transparent 62%, transparent 100%);
+  background-size: 300% 100%; background-position: 105% 0; }
+.block-wave.roll, .block-wave.run { animation: block-wave-roll 1.4s linear; }
+@keyframes block-wave-roll { 0% { opacity: 1; background-position: 105% 0; } 92% { opacity: 1; } 100% { opacity: 0; background-position: -5% 0; } }
