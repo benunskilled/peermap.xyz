@@ -45,13 +45,17 @@
     }
     if (changed.length > 4) changed = changed.slice(-4);
   }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, characterData: true });
-  let lastY = scrollY, lastH = 0, touching = false;
+  // Die Leiste bleibt zu, bis die Seite springt, ohne dass ein Finger drauf ist oder eben losgelassen hat (Ben 06.11.:
+  // mit offener Leiste kam der Sprung nicht mehr, der Bildschirm war zu klein zum Lesen).
+  let lastY = scrollY, lastH = 0, touching = false, releasedAt = 0;
   addEventListener("touchstart", () => { touching = true; }, { passive: true });
-  addEventListener("touchend", () => { touching = false; log("Finger los"); }, { passive: true });
+  addEventListener("touchend", () => { touching = false; releasedAt = performance.now(); log("Finger los"); }, { passive: true });
+  const show = () => { if (box) box.style.display = "block"; };
   addEventListener("resize", () => log(`Fenster ${innerWidth}×${innerHeight}`));
   if (window.visualViewport) visualViewport.addEventListener("resize", () => log(`Sichtfeld ${Math.round(visualViewport.height)}`));
   function frame() {
     const y = Math.round(scrollY), h = document.documentElement.scrollHeight;
+    if (Math.abs(y - lastY) > 100 && !touching && performance.now() - releasedAt > 1500) show();
     if (Math.abs(y - lastY) > 100) log(`SPRUNG ${y - lastY > 0 ? "+" : ""}${y - lastY} (y ${y}, Seite ${lastH}→${h}${touching ? ", Finger drauf" : ""}) nach: ${changed.join(", ") || "nichts"}`);
     if (Math.abs(h - lastH) > 50 && lastH) log(`Seitenhöhe ${lastH}→${h} (${changed.join(", ")})`);
     lastY = y; lastH = h; changed = [];
@@ -59,7 +63,7 @@
   }
   addEventListener("DOMContentLoaded", () => {
     box = document.createElement("pre");
-    box.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:99999;margin:0;padding:6px 8px;max-height:38vh;overflow:auto;" +
+    box.style.cssText = "display:none;position:fixed;left:0;right:0;bottom:0;z-index:99999;margin:0;padding:6px 8px;max-height:38vh;overflow:auto;" +
       "background:rgba(0,0,0,.85);color:#9f9;font:11px/1.35 ui-monospace,monospace;white-space:pre-wrap;pointer-events:none";
     // Neben body, nicht darin: die App beobachtet body und würde jede neue Zeile als Änderung der Seite nehmen.
     document.documentElement.appendChild(box);
