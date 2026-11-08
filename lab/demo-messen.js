@@ -1,4 +1,4 @@
-// Messmodus der Demo (Ben 06.11.2026: am iPhone springt die Lab-Seite nach längerem Lesen nach unten, im nachgebauten
+// Messmodus der Demo (06.11.2026: am iPhone springt die Lab-Seite nach längerem Lesen nach unten, im nachgebauten
 // Safari nie). Nur mit ?messen in der Adresse. Schreibt unten in eine Leiste, wer die Seite bewegt: unsere eigenen
 // scrollTo/scrollBy/scrollIntoView-Aufrufe (mit der Funktion, die sie auslöst), jeden Sprung über 100 px zwischen zwei
 // Bildern, Größenänderungen des Fensters, Berührungen und welche Bereiche sich davor geändert haben.
@@ -47,7 +47,7 @@
     }
     if (changed.length > 4) changed = changed.slice(-4);
   }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, characterData: true });
-  // Die Leiste bleibt zu, bis die Seite springt, ohne dass ein Finger drauf ist oder eben losgelassen hat (Ben 06.11.:
+  // Die Leiste bleibt zu, bis die Seite springt, ohne dass ein Finger drauf ist oder eben losgelassen hat (06.11.:
   // mit offener Leiste kam der Sprung nicht mehr, der Bildschirm war zu klein zum Lesen).
   let lastY = scrollY, lastH = 0, touching = false, releasedAt = 0;
   addEventListener("touchstart", () => { touching = true; }, { passive: true });
