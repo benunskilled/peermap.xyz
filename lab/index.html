@@ -26,7 +26,7 @@
   </header>
 
   <main>
-    <div id="readonly-banner" class="service-banner" hidden role="status" style="background:var(--panel);border-color:#5a4312;color:var(--text);display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px"><span style="flex:1 1 100%">Demo: a snapshot of one node's Bitcoin Lab, taken 5&nbsp;Nov&nbsp;2026. Every address is replaced.</span><button type="button" class="btn" id="demo-block">Simulate a new block</button><a href="https://github.com/benunskilled/bitcoin-lab" style="color:var(--muted);text-decoration:none;white-space:nowrap">Get Bitcoin Lab for your node &#8599;</a></div>
+    <div id="readonly-banner" class="service-banner" hidden role="status" style="background:var(--panel);border-color:#5a4312;color:var(--text);display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px"><span style="flex:1 1 100%">Demo: a snapshot of one node's Bitcoin Lab, taken 8&nbsp;Nov&nbsp;2026. Every address is replaced.</span><button type="button" class="btn" id="demo-block">Next recorded block</button><a href="https://github.com/benunskilled/bitcoin-lab" style="color:var(--muted);text-decoration:none;white-space:nowrap">Get Bitcoin Lab for your node &#8599;</a></div>
     <div id="service-banner" class="service-banner" hidden role="status"></div>
     <div id="refresh-banner" class="service-banner" hidden role="status"></div>
     <section class="card hero-card">
@@ -248,13 +248,11 @@
       <p class="hint" id="pool-no-miner" hidden>No miner needed: install a pool app on this Umbrel and race your own node against the solo pools.<br>
         Every pool app works right away, except DATUM: it needs a Bitcoin address first.</p>
       <div id="stratum-body">
-      <div class="inline-form">
-        <label class="hint" for="stratum-range">Range:</label>
-        <select id="stratum-range">
-          <option value="10">Last 10 blocks</option>
-          <option value="100">Last 100 blocks</option>
-          <option value="all">All time</option>
-        </select>
+      <!-- The range as a switch, like the one on Peer Map's block card. -->
+      <div class="rt-switch" id="stratum-range" role="group" aria-label="Range">
+        <button type="button" data-range="10" class="on" aria-pressed="true">10 blocks</button>
+        <button type="button" data-range="100" aria-pressed="false">100 blocks</button>
+        <button type="button" data-range="all" aria-pressed="false">All time</button>
       </div>
       <div class="inline-form" id="pool-found" hidden>
         <span class="hint" id="pool-found-text"></span>
@@ -354,7 +352,6 @@
   </main>
 
   <script src="demo-messen.js"></script>
-  <script src="demo-sim.js"></script>
   <script src="demo.js"></script>
   <script src="app.js"></script>
 </body>

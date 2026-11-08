@@ -14,7 +14,6 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <meta name="theme-color" content="#0b0f14">
   <link rel="stylesheet" href="style.css">
-  <script src="demo-sim.js"></script>
   <script src="demo.js"></script>
   <script src="app.js" defer></script>
   <link rel="stylesheet" href="demo-welle.css">
@@ -29,7 +28,7 @@
   </header>
 
   <main>
-    <div class="banner banner-demo" id="demo" hidden style="background:var(--panel);border-color:#5a4312;color:var(--text);display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px"><span style="flex:1 1 100%">Demo: a snapshot of one node's peers, taken 5&nbsp;Nov&nbsp;2026. Every address is replaced.</span><button type="button" class="btn" id="demo-block">Simulate a new block</button><a href="https://github.com/benunskilled/peer-map" style="color:var(--muted);text-decoration:none;white-space:nowrap">Get Peer Map for your node &#8599;</a></div><style>#demo::before{content:none}</style>
+    <div class="banner banner-demo" id="demo" hidden style="background:var(--panel);border-color:#5a4312;color:var(--text);display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px"><span style="flex:1 1 100%">Demo: a snapshot of one node's peers, taken 8&nbsp;Nov&nbsp;2026. Every address is replaced.</span><button type="button" class="btn" id="demo-block">Next recorded block</button><a href="https://github.com/benunskilled/peer-map" style="color:var(--muted);text-decoration:none;white-space:nowrap">Get Peer Map for your node &#8599;</a></div><style>#demo::before{content:none}</style>
     <p class="banner banner-error" id="error" hidden></p>
     <div class="banner banner-paused" id="paused" hidden>
       <span>Paused after 30 minutes without activity - Bitcoin Core is not being asked for peers.</span>
@@ -63,6 +62,7 @@
     <section class="card block-card" id="blockCard" hidden>
       <div class="block-summary" id="blockSummary" hidden></div>
       <div class="block-route" id="blockRoute" hidden></div>
+      <div class="block-recon" id="blockRecon" hidden></div>
       <details class="block-more" id="blockMore">
         <summary id="blockMoreLabel"></summary>
         <div class="block-body" id="blockBody"></div>

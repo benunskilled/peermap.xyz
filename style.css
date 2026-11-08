@@ -139,10 +139,23 @@ body {
 .rt-list .miss { color: var(--muted); max-width: 0; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rt-list tr.pool .n, .rt-list tr.own .n, .rt-list tr.own .num { color: var(--accent); }
 .block-route .note { margin: 0; font-size: 13px; color: var(--muted); }
+.block-recon { padding: 0 16px 10px; }
+.block-recon .rt-switch { margin: 0 8px 0 0; vertical-align: middle; }
+.block-recon .recon-head { font-size: 13px; color: var(--muted); margin-right: 8px; }
+.block-recon .recon-line { margin: 6px 0 0; font-size: 13px; color: var(--text); }
+.block-recon .recon-line small { color: var(--muted); font-size: 13px; }
 .block-card .b-height { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
-.block-card .b-sep { color: var(--border); }
+/* Each part carries its dot in front, inside a 21px lead-in. The parts sit
+   21px to the left of the clipping box, so on every line the first part's dot
+   falls outside it and only the dots between parts show. */
+.block-card .b-line { flex: 1 1 0; min-width: 0; overflow: hidden; }
+.block-card .b-parts { display: flex; flex-wrap: wrap; row-gap: 4px; margin-left: -21px; }
+.block-card .b-part { position: relative; padding-left: 21px; min-width: 0; }
+.block-card .b-part::before { content: "·"; position: absolute; left: 7px; color: var(--border); }
+.block-card .b-unknown { color: var(--accent); }
+.block-card .b-part.b-cut { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .block-card .b-pool { color: var(--accent); }
-.block-card .b-pool.raw { color: var(--muted); font-style: italic; }
+.block-card .b-pool.raw { font-style: italic; }
 .block-body { padding: 0 16px 16px; display: flex; flex-direction: column; gap: 14px; }
 .block-body h3 {
   margin: 0 0 6px; font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase;
@@ -424,11 +437,15 @@ table.peers.aligned { table-layout: fixed; }
 .foot a { color: var(--muted); }
 
 /* ---- the wave: rolls across the page once when a new block lands ---- */
+/* The same wave as Bitcoin Lab's: slanted, in its orange, from just off the
+   left edge to just off the right at an even pace, fading once it is out.
+   It was upright and faint here, and eased, so it faded before the right
+   half (05.11.2026). */
 .block-wave { position: fixed; inset: 0; pointer-events: none; z-index: 20; opacity: 0;
-  background: linear-gradient(90deg, transparent 0%, rgba(247,147,26,0) 35%, rgba(247,147,26,.14) 48%, rgba(255,190,110,.28) 50%, rgba(247,147,26,.14) 52%, rgba(247,147,26,0) 65%, transparent 100%);
-  background-size: 300% 100%; }
-.block-wave.run { animation: block-wave-roll 1.4s ease-out; }
-@keyframes block-wave-roll { 0% { opacity: 1; background-position: 100% 0; } 85% { opacity: 1; } 100% { opacity: 0; background-position: 0% 0; } }
+  background: linear-gradient(100deg, transparent 0%, transparent 38%, rgba(247,147,26,.55) 48%, rgba(247,147,26,.85) 50%, rgba(247,147,26,.55) 52%, transparent 62%, transparent 100%);
+  background-size: 300% 100%; background-position: 105% 0; }
+.block-wave.run { animation: block-wave-roll 1.4s linear; }
+@keyframes block-wave-roll { 0% { opacity: 1; background-position: 105% 0; } 92% { opacity: 1; } 100% { opacity: 0; background-position: -5% 0; } }
 @media (prefers-reduced-motion: reduce) { .block-wave.run { animation: none; } }
 
 /* ---- V2 design ---- */
