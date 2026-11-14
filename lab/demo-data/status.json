@@ -1,1 +1,0 @@
-{"blockHeight":975042,"network":"mainnet","live":{"total":410,"inbound":394,"outbound":16,"manual":6},"maxManualPeers":8,"recentScoreWindowBlocks":500,"unclearFirsts":{"races":7756,"unclear":5},"outboundFunnel":{"seen":1571,"tested":830,"delivered":38,"promoted":29},"stratumRaceEnabled":true,"peerMapInstalled":true,"dbBytes":155793224,"readOnly":true}
