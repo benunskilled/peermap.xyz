@@ -270,7 +270,7 @@ th button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent
 :where(#map) .link { fill: none; stroke-width: 0.7; stroke-opacity: 0.16; stroke-linecap: round; pointer-events: none; }
 .l-manual { stroke: var(--manual); stroke-opacity: 0.5; stroke-width: 1; }
 .l-inbound { stroke: var(--inbound); stroke-opacity: 0.08; }
-.l-outbound { stroke: var(--outbound); stroke-opacity: 0.3; }
+.l-outbound { stroke: var(--outbound); stroke-opacity: 0.5; stroke-width: 1; } /* as clear as manual (15.11.2026): at 0.3 and thin they vanished beside it */
 .home-mark { pointer-events: none; }
 .home-dot { fill: var(--accent); stroke: var(--bg); stroke-width: 1.2; }
 .fx-head { fill: #ffd29a; }
@@ -293,10 +293,6 @@ th button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent
 .marker.selected .sel { stroke: var(--text); stroke-width: 1.5; }
 .marker text { fill: var(--text); font-size: 11px; font-weight: 600; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; pointer-events: none; }
 
-.map-level {
-  position: absolute; left: 12px; bottom: 12px; font-size: 12px; color: var(--muted);
-  background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; pointer-events: none;
-}
 .zoom { position: absolute; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 4px; }
 .zoom button {
   width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border);
@@ -309,8 +305,6 @@ th button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent
   .map-wrap { padding-bottom: 36px; }
   .zoom { right: 6px; bottom: 4px; gap: 4px; flex-direction: row; }
   .zoom button { width: 28px; height: 28px; }
-  .map-level { left: 6px; bottom: 8px; font-size: 11px; }
-  .map-level-hint { display: none; }
 }
 
 .tooltip {
@@ -381,7 +375,7 @@ table.peers.aligned { table-layout: fixed; }
 /* Laid out, the kind's line may use the whole column; measured, it keeps
    its cap, so one long line does not cost every table a column. */
 .peers th, .peers td { padding: 9px 12px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--border); }
-.peers tbody tr:not(.delivered-now):hover td { background: #17202a; }
+.peers tbody tr:not(.delivered-now):not(.leaving):hover td { background: #17202a; }
 .peers th:first-child, .peers td:first-child { padding-left: 20px; }
 .peers th:last-child, .peers td:last-child { padding-right: 20px; }
 .peers tbody tr:last-child td { border-bottom: 0; }
@@ -422,6 +416,17 @@ table.peers.aligned { table-layout: fixed; }
   color: var(--muted); font-size: 10px; letter-spacing: .04em; text-transform: uppercase;
 }
 .cards.cards tr.delivered-now { background: rgba(247,147,26,.13); }
+/* A row removed or disconnected a moment ago: slim, then it glides out (markLeaving in app.js).
+   The glide only on .out: every redraw measures the tables first, and a
+   transition there made the slim row twitch. */
+.peers tr.leaving td { color: var(--muted); }
+.peers tbody tr.leaving:not(.detail-row) { cursor: default; }
+.peers tr.leaving .leave { max-height: 3em; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.peers tr.leaving.out td { padding-top: 0; padding-bottom: 0; transition: padding .4s ease; }
+.peers tr.leaving.out .leave { max-height: 0; opacity: 0; transition: max-height .4s ease, opacity .4s ease; }
+.cards.cards table tr.leaving { display: block; }
+.cards.cards table tr.leaving.out { padding-top: 0; padding-bottom: 0; border-bottom-color: transparent; transition: padding .4s ease, border-color .4s ease; }
+@media (prefers-reduced-motion: reduce) { .peers tr.leaving.out td, .peers tr.leaving.out .leave, .cards.cards table tr.leaving.out { transition: none; } }
 .empty { color: var(--muted); margin: 0 20px 8px; }
 /* The mix of peer kinds under a group heading: a summary, not a heading of
    its own, so it stays quiet enough to skip over. */
@@ -445,6 +450,11 @@ table.peers.aligned { table-layout: fixed; }
 /* ---- V2 design ---- */
 .map-legend { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 10px 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
 .map-legend .swatch { width: 9px; height: 9px; margin-right: 6px; vertical-align: -1px; }
+/* The three groups are switches for the map: off, faded and struck through. */
+.map-card .map-legend .legend-pick { all: unset; cursor: pointer; display: inline-flex; align-items: center; color: var(--muted); font-size: 12px; border-radius: 4px; }
+.map-card .map-legend .legend-pick:hover { color: var(--text); }
+.map-card .map-legend .legend-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.map-card .map-legend .legend-pick[aria-pressed="false"] { opacity: .45; text-decoration: line-through; }
 .s-home { background: var(--accent); }
 
 /* Group heading: the name, then the count and the kinds as chips. */
@@ -616,14 +626,22 @@ button.chip.syncing { cursor: pointer; }
 /* Chips change state softly. */
 .chip { transition: border-color .12s ease, color .12s ease, background-color .12s ease; }
 /* A peer that has just connected lights up once. */
-tr.arrived > td { animation: arrived 2.4s ease-out; }
+tr.arrived > td, tr.jumped > td { animation: arrived 2.4s ease-out; }
 /* As a card the row is one box: it lights up whole. */
-.cards tr.arrived { animation: arrived 2.4s ease-out; }
-.cards tr.arrived > td { animation: none; }
+.cards tr.arrived, .cards tr.jumped { animation: arrived 2.4s ease-out; }
+.cards tr.arrived > td, .cards tr.jumped > td { animation: none; }
+/* "Brought by": the place reads as text, the underline says it leads to the peer. */
+button.b-peer { border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+button.b-peer:hover { text-decoration-style: solid; }
+/* Before the first block: one quiet line where the block will be. */
+.block-wait { margin: 0; padding: 12px 16px; color: var(--muted); font-size: 14px; }
 @keyframes arrived { from { background-color: rgba(247, 147, 26, .16); } }
 /* Scrolling back up on a phone: the sections, a tap away. */
 .jump-bar { position: fixed; z-index: 30; left: 50%; top: 8px; transform: translate(-50%, calc(-100% - 16px)); display: flex; gap: 4px; padding: 4px; border-radius: 999px; background: rgba(17, 24, 32, .92); border: 1px solid var(--border); box-shadow: 0 4px 16px rgba(0, 0, 0, .35); transition: transform .2s ease; max-width: calc(100vw - 16px); }
-.jump-bar.shown { transform: translate(-50%, 0); }
+/* --jump-top: below the open inbound list's bar while that is pinned
+   (3-render.js). Only in the shown state: hidden, the bar stays off-screen
+   whatever it is, and does not flash over the bar as that pins. */
+.jump-bar.shown { transform: translate(-50%, calc(var(--jump-top, 8px) - 8px)); }
 .jump-bar button { font: inherit; font-size: 13px; color: var(--text); background: none; border: 0; padding: 8px 11px; border-radius: 999px; white-space: nowrap; }
 .jump-bar button:active { background: var(--panel-2); }
 @media (prefers-reduced-motion: reduce) {
@@ -710,7 +728,7 @@ body { padding-bottom: var(--bars-h, 0px); }
 .bottom-bars > .banner { pointer-events: auto; width: 100%; max-width: 720px; box-sizing: border-box; box-shadow: 0 6px 20px rgba(0, 0, 0, .45); }
 .map-card.folded > :not(.map-head) { display: none; }
 /* A folded card opens with a tap anywhere on it. */
-.card.folded, details.card.panel:not([open]), .block-card:has(> .block-more:not([open])) { cursor: pointer; }
+.card.folded, details.card.panel:not([open]), .block-card:has(> .block-more:not([open]):not([hidden])) { cursor: pointer; }
 .map-card.folded .map-head { border-bottom: 0; }
 
 /* The open inbound list keeps its name and the way back at the top. */
@@ -951,6 +969,7 @@ details.card.panel > *:not(summary) { margin-top: 14px; }
 .panel .pill.rotation-manual { background: rgba(57,135,229,.15); color: #6aa8f0; }
 .panel .pill.rotation-retire { background: rgba(138,153,168,.15); color: var(--muted); }
 .panel .pill.rotation-disconnect, .panel .pill.rotation-unmanual { background: rgba(138,153,168,.15); color: var(--muted); }
+.panel .pill.rotation-rejected { background: rgba(248,81,73,.15); color: var(--bad, #f85149); }
 /* The Add-a-Peer result line. "not reachable" is a perfectly good answer
    rather than an error - Test exists to produce it - so it is coloured as
    information, on its own line under the form instead of squeezed beside it
@@ -1487,3 +1506,26 @@ details.card.panel summary { gap: 8px; }
 details.card.panel summary::before { margin: 0 2px 0 1px; width: 6px; height: 6px; }
 .card.panel h2.fold-title::before { margin: 0 2px 0 1px; width: 6px; height: 6px; }
 
+
+/* Slot Fill: the candidates tried since a slot came free, under the top row
+   of the log (15.11.2026). Time, place, how it ended - one line each, the
+   place cut before the reason is. */
+.slot-tries { margin-top: 6px; }
+.slot-tries summary { cursor: pointer; color: var(--muted); width: fit-content; }
+.slot-tries summary:hover { color: var(--text); }
+.slot-tries ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 3px; }
+.slot-tries li { display: grid; grid-template-columns: 3.4em minmax(0, 1fr) auto; gap: 0 10px; align-items: baseline; color: var(--muted); }
+.slot-tries .st-when { font-variant-numeric: tabular-nums; }
+.slot-tries .st-where { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 520px) { .slot-tries ul { gap: 8px; } .slot-tries li { grid-template-columns: 3.4em minmax(0, 1fr); } .slot-tries .st-what { grid-column: 2; } }
+
+/* Slot Fill: the regions as switches (15.11.2026). Off, an outline; picked,
+   filled orange like the page's other buttons. Under .panel, whose buttons
+   are orange by default (the rule above). */
+.region-picks { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+.panel .region-pick { font-size: 13px; font-weight: 500; color: var(--muted); background: transparent; border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; }
+.panel .region-pick b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.panel .region-pick:hover:not(:disabled) { color: var(--text); border-color: var(--muted); }
+.panel .region-pick.on { background: var(--accent); border-color: var(--accent); color: #1a1200; }
+.panel .region-pick.on b { color: #1a1200; }
+.panel .region-pick:disabled { opacity: .45; cursor: default; }

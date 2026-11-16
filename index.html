@@ -45,7 +45,7 @@
       </div>
     </section>
 
-    <div class="banner banner-demo" id="demo" hidden style="display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px"><span style="flex:1 1 100%">Demo: one node's Peer Lab, recorded 14&nbsp;Nov&nbsp;2026. Every address is replaced, and nothing here changes a node.</span><button type="button" class="btn" id="demo-block">Next recorded block</button><a href="https://github.com/benunskilled/peer-lab" style="color:var(--muted);text-decoration:none;white-space:nowrap">Get Peer Lab for your node &#8599;</a></div>
+    <div class="banner banner-demo" id="demo" hidden style="display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px"><span style="flex:1 1 100%">Demo: one node's Peer Lab, recorded 16&nbsp;Nov&nbsp;2026. Peer addresses are replaced; rough locations and connection details are real. Nothing here changes a node.</span><button type="button" class="btn" id="demo-block">Next recorded block</button><a href="https://github.com/benunskilled/peer-lab" style="color:var(--muted);text-decoration:none;white-space:nowrap">Get Peer Lab for your node &#8599;</a></div>
     <!-- Fixed at the foot of the screen: up in the page, a reader down in the
          lists never saw that the page had stopped or could not reach the list. -->
     <div class="bottom-bars">
@@ -65,6 +65,8 @@
          a single line that opens onto who delivered it: then the summary is
          the fold's own label and #blockSummary stays hidden. -->
     <section class="card block-card" id="blockCard" hidden>
+      <!-- A fresh install until its first block: what comes here, and that it comes. -->
+      <p class="block-wait" id="blockWait" hidden>Waiting for the next block. Peer Lab notes who mined it and which peer brought it to you.</p>
       <div class="block-summary" id="blockSummary" hidden></div>
       <div class="block-route" id="blockRoute" hidden></div>
       <div class="block-recon" id="blockRecon" hidden></div>
@@ -109,7 +111,6 @@
           <g id="markers"></g>
           <g id="fx"></g>
         </svg>
-        <span class="map-level"><span id="mapLevel">Countries</span><span class="map-level-hint" id="mapLevelHint"> · zoom in for regions</span></span>
         <div class="zoom" role="group" aria-label="Zoom">
           <button id="zoomIn" aria-label="Zoom in">+</button>
           <button id="zoomOut" aria-label="Zoom out">−</button>
@@ -128,11 +129,12 @@
           <tbody id="unplacedBody"></tbody>
         </table>
       </aside>
-      <!-- What the colours on the map mean. -->
-      <div class="map-legend">
-        <span><span class="swatch s-inbound"></span>Inbound</span>
-        <span><span class="swatch s-outbound"></span>Outbound</span>
-        <span><span class="swatch s-manual"></span>Manual</span>
+      <!-- What the colours on the map mean - and, tapped, which of the three
+           groups the map shows (15.11.2026). Only the map: the tables stay. -->
+      <div class="map-legend" id="mapLegend">
+        <button type="button" class="legend-pick" data-group="inbound" aria-pressed="true" title="Show or hide inbound peers on the map"><span class="swatch s-inbound"></span>Inbound</button>
+        <button type="button" class="legend-pick" data-group="outbound" aria-pressed="true" title="Show or hide outbound peers on the map"><span class="swatch s-outbound"></span>Outbound</button>
+        <button type="button" class="legend-pick" data-group="manual" aria-pressed="true" title="Show or hide manual peers on the map"><span class="swatch s-manual"></span>Manual</button>
         <span><span class="swatch s-home"></span>Your node</span>
       </div>
     </section>
@@ -193,7 +195,7 @@
       <div class="inline-form">
         <label class="switch-label" for="rotation-toggle">
           <input type="checkbox" id="rotation-toggle" />
-          Fill manual slots automatically (recommended)
+          Fill manual slots automatically
         </label>
       </div>
       <!--
@@ -203,17 +205,25 @@
         what the switch does and what it costs you.
       -->
       <div class="rotation-hint">
-        <p>Fills free manual slots where your node has the fewest connections: other regions, other providers.</p>
+        <p>Fills free manual slots around the world: other countries, other providers.</p>
         <details class="how">
           <summary>How it works</summary>
           <ul>
-            <li>When a manual slot is free, it goes to a peer from a missing region, taken from Core's address book.</li>
+            <li>A free slot goes to a peer from a new country, taken from Core's address book.</li>
             <li>Core tests it. If Core can't connect, the next one is tried.</li>
             <li>A manual peer that is offline for an hour frees its slot. One that ever delivered a block first gets a day.</li>
             <li>Working peers and Core's own connections are never touched.</li>
           </ul>
         </details>
       </div>
+      <!-- What there is to pick from: Core's address book after Slot Fill's
+           own filters, per region on a tap. Only while Slot Fill is on. -->
+      <details class="how slot-book" id="slot-book" hidden>
+        <summary id="slot-book-sum"></summary>
+        <p class="region-picks" id="slot-book-regions"></p>
+        <p class="hint" id="slot-pick-note"></p>
+        <p class="hint">Peers from Core's address book that Core has connected to before, serve blocks and are not connected now.</p>
+      </details>
       <h3>Log</h3>
       <div class="table-wrap">
         <table id="rotation-log-table" class="rotation-log-table">

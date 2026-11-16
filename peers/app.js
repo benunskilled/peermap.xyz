@@ -349,12 +349,23 @@
     const firsts = b.first_peers || [];
     const known = new Map(((state.data && state.data.peers) || []).map((p) => [p.addr, p]));
     const lead = firsts.map((a) => known.get(a)).find(Boolean);
-    const more = firsts.length > 1 ? ` +${firsts.length - 1}` : "";
-    if (!firsts.length) row("Brought by", span("miss", "nobody credited"));
+    // More than one peer fit the moment: nobody is credited, and the block
+    // says why rather than leave it at "nobody".
+    if (!firsts.length) row("Brought by", span("miss", b.first_count > 1 ? `${b.first_count} peers at once, nobody credited` : "nobody credited"));
     else {
       const where = lead ? (HIDDEN_FLAG[lead.network] ? HIDDEN_FLAG[lead.network] + " " + netLabel(lead.network)
         : lead.cc ? flagOf(lead.cc) + " " + regionName(lead.cc) : netLabel(lead.network)) : "a peer no longer connected";
-      const v = row("Brought by", span("", where + more, firsts.join("\n")));
+      // A peer still connected is a way to its row: open, in view, lit up.
+      let shown = span("", where, firsts[0]);
+      if (lead) {
+        shown = document.createElement("button");
+        shown.type = "button";
+        shown.className = "b-peer";
+        shown.textContent = where;
+        shown.title = firsts[0] + "\nShow this peer";
+        shown.addEventListener("click", () => revealPeer(lead.addr));
+      }
+      const v = row("Brought by", shown);
       if (b.first_hb === 1) v.append(" ", span("hb", "\u26a1", HB_TITLE));
     }
 
@@ -375,15 +386,47 @@
       }
     } else if (entries.length) {
       row("First job", span("", entries[0].label));
+    } else if (poolRowSeen && Date.now() - firstSeenAt(b.hash) < POOL_ROW_WAIT_MS) {
+      // The race is written seconds after the block: its row waits here
+      // rather than appear late and push the whole page down (16.11.2026).
+      row(own0Label || "Your pool", span("miss", "\u2026"));
     }
+    if (own) { poolRowSeen = true; own0Label = "Your pool"; }
+    else if (entries.length) { poolRowSeen = true; own0Label = "First job"; }
+  }
+  // Whether the blocks before had a pool row, and when each block was first
+  // seen here, for the placeholder above. A minute and a half covers the race
+  // (eight seconds) and a check with Core; after that no row is a fact.
+  const POOL_ROW_WAIT_MS = 90 * 1000;
+  let poolRowSeen = false;
+  let own0Label = "";
+  const seenAt = new Map();
+  function firstSeenAt(hash) {
+    if (!seenAt.has(hash)) {
+      seenAt.set(hash, Date.now());
+      if (seenAt.size > 20) seenAt.delete(seenAt.keys().next().value);
+    }
+    return seenAt.get(hash);
   }
 
   function renderBlockCard() {
     const card = $("blockCard");
     if (!card) return;
-    const b = state.data && state.data.last_block;
-    card.hidden = !b;
+    if (!state.data) { card.hidden = true; return; }
+    const b = state.data.last_block;
+    // No block since Peer Lab started - a fresh install: the card says what
+    // will come, rather than leave the page to begin with the map. Only when
+    // the dashboard said so: a dashboard that did not answer (restarting,
+    // slow) leaves the card out, as before, not "waiting" on a node with
+    // hundreds of blocks.
+    if (!b && !state.data.no_block_yet) { card.hidden = true; return; }
+    card.hidden = false;
+    $("blockWait").hidden = Boolean(b);
+    const verdictBox = $("blockVerdict");
+    for (const el of [$("blockSummary"), $("blockRoute"), $("blockRecon"), $("blockMore"), verdictBox]) if (el && !b) el.hidden = true;
     if (!b) return;
+    if (verdictBox) verdictBox.hidden = false;
+    $("blockMore").hidden = false;
     const more = $("blockMore");
     // The route and the compact block line belong to the details.
     for (const id of ["blockRoute", "blockRecon"]) if ($(id).parentElement !== more) more.insertBefore($(id), $("blockBody"));
@@ -450,6 +493,7 @@
         btn.type = "button";
         btn.textContent = label;
         btn.className = v === view ? "on" : "";
+        btn.setAttribute("aria-pressed", String(v === view));
         btn.addEventListener("click", () => setRouteView(v));
         sw.appendChild(btn);
       }
@@ -764,6 +808,7 @@
       btn.type = "button";
       btn.textContent = label;
       btn.className = v === view ? "on" : "";
+      btn.setAttribute("aria-pressed", String(v === view));
       btn.addEventListener("click", () => setRouteView(v));
       sw.appendChild(btn);
     }
@@ -958,6 +1003,7 @@
     const card = $("blockCard"), box = $("blockMore");
     card.addEventListener("click", (ev) => {
       if (!card.contains(ev.target) || ev.target.closest("summary, a, button, input, select, textarea, label")) return;
+      if (!$("blockWait").hidden) return; // nothing to open before the first block
       if (String(window.getSelection()).length > 0) return;
       // Inside an open fold of its own (Pools): that one shuts, as a tap in
       // any other fold does. It shut the whole Details instead, and left
@@ -1103,6 +1149,15 @@
       if (c) go(label, c);
     }
   }
+  // On a phone the bar comes down from the top, where the open inbound list
+  // pins its name and "Top 10": it goes below that bar, not over it (it hid
+  // both, and the button could not be tapped; 16.11.2026).
+  function placeJumpBar() {
+    const pinned = document.querySelector(".stick.on > div");
+    const r = pinned && pinned.getBoundingClientRect();
+    const top = r && r.height && r.top <= 1 ? Math.round(r.bottom) + 8 : 8;
+    jumpBar.style.setProperty("--jump-top", top + "px");
+  }
   window.addEventListener("scroll", () => {
     const y = window.scrollY;
     if (Date.now() < jumpedUntil) { lastY = y; return; }
@@ -1113,6 +1168,8 @@
     const show = phone ? up && y > window.innerHeight : y > window.innerHeight;
     const hide = phone ? down || y < window.innerHeight / 2 : y < window.innerHeight;
     jumpBar.classList.toggle("corner", !phone);
+    // After the list has pinned or released its bar in this same scroll.
+    if (phone) requestAnimationFrame(placeJumpBar);
     if (show) {
       if (!jumpBar.classList.contains("shown")) { fillJumpBar(); jumpBar.classList.add("shown"); }
     } else if (hide) jumpBar.classList.remove("shown");
@@ -1138,7 +1195,7 @@
   document.addEventListener("keydown", (e) => {
     if (e.target.closest && e.target.closest("input, textarea, select")) return;
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "Enter") return;
-    const rows = [...document.querySelectorAll("#tables tr[data-anchor]")].filter((r) => r.offsetParent);
+    const rows = [...document.querySelectorAll("#tables tr[data-anchor]:not(.leaving)")].filter((r) => r.offsetParent);
     const at = rows.indexOf(document.activeElement);
     if (e.key === "Enter") {
       if (at >= 0) { rows[at].click(); e.preventDefault(); }
@@ -1372,9 +1429,14 @@
     // A peer just disconnected or removed here leaves the list at once, not
     // when this service next asks Core: its answer can be ten seconds old.
     d.peers = d.peers.filter((p) => !dashboard().gone(p.addr));
-    // The tiles at the top count these same peers.
+    // The tiles at the top count these same peers - but for a candidate Slot
+    // Fill is testing, which comes and goes every few seconds: counted once
+    // it is added (15.11.2026).
     const counts = { manual: 0, inbound: 0, outbound: 0 };
-    for (const p of d.peers) counts[p.group]++;
+    for (const p of d.peers) {
+      if (p.group === "manual" && dashboard().onTrial && dashboard().onTrial(p.addr)) continue;
+      counts[p.group]++;
+    }
     dashboard().liveCounts(counts);
     $("demo").hidden = !d.demo;
     showError([d.error ? "Bitcoin Core: " + d.error + (d.fetched_at ? " - showing the last good peer list." : "") : "", state.worldError || ""].filter(Boolean).join(" "));
@@ -1387,9 +1449,13 @@
     renderBlockCard();
     renderMarkers();
     renderUnplaced();
+    // No peers at all (a list not in yet, a fresh node) is not "nowhere to
+    // place them": the map stays as it is.
+    mapFollowsPeers(!d.peers.length || d.peers.some((p) => p.cc));
     renderTables();
     if (window.scrollY !== y) window.scrollTo(0, y);
     if (!dashboard().folding()) holdAnchor(anchor);
+    placeLeaving(y);
     restoreReloadY();
     const hash = d.last_block && d.last_block.hash;
     if (hash && state.lastHash && hash !== state.lastHash) pulseBlock();
@@ -1517,7 +1583,9 @@
     const delivered = deliveredNow;
     const by = new Map();
     for (const p of visiblePeers()) {
-      if (!p.cc) continue;
+      // A hidden group's peers are left off - but not the one that brought the
+      // last block: the star is the one place the map says who did.
+      if (!p.cc || (mapHidden.has(p.group) && !delivered.has(p.addr))) continue;
       const key = placeKey(p, byRegion);
       let b = by.get(key);
       if (!b) {
@@ -1550,11 +1618,28 @@
   }
 
   let renderedMode = null;
+  // The legend's three groups, each a switch for the map alone (15.11.2026):
+  // a node with hundreds of inbound peers hid its few outbound ones under
+  // them. Kept on this device.
+  const MAP_HIDDEN_KEY = "peerlab.mapHidden";
+  const mapHidden = new Set((() => { try { return JSON.parse(store.get(MAP_HIDDEN_KEY)) || []; } catch { return []; } })());
+  function drawLegend() {
+    for (const b of document.querySelectorAll("#mapLegend .legend-pick")) b.setAttribute("aria-pressed", String(!mapHidden.has(b.dataset.group)));
+  }
+  drawLegend();
+  $("mapLegend").addEventListener("click", (e) => {
+    const b = e.target.closest(".legend-pick");
+    if (!b) return;
+    const g = b.dataset.group;
+    if (mapHidden.has(g)) mapHidden.delete(g); else mapHidden.add(g);
+    store.set(MAP_HIDDEN_KEY, JSON.stringify([...mapHidden]));
+    drawLegend();
+    renderMarkers();
+  });
+
   function renderMarkers() {
     if (!state.world || !state.data) return;
     renderedMode = regionMode();
-    $("mapLevel").textContent = renderedMode ? "Regions" : "Countries";
-    $("mapLevelHint").hidden = renderedMode;
     const layer = $("markers");
     layer.textContent = "";
     const bs = buckets();
@@ -1577,7 +1662,7 @@
       g.dataset.key = b.key;
       g.setAttribute("tabindex", "0");
       g.setAttribute("role", "button");
-      g.setAttribute("aria-label", `${b.title}${b.sub ? ", " + b.sub : ""}: ${GROUPS.map((k) => b[k] + " " + LABEL[k].toLowerCase()).join(", ")}`);
+      g.setAttribute("aria-label", `${b.title}${b.sub ? ", " + b.sub : ""}: ${GROUPS.filter((k) => !mapHidden.has(k) || b[k]).map((k) => b[k] + " " + LABEL[k].toLowerCase()).join(", ")}`);
 
       // A light, not a pie: the colour is the place's leading group - manual
       // whenever it holds one of yours - and the split is in the tooltip.
@@ -1788,9 +1873,9 @@
 
   function togglePlace(b) {
     state.place = state.place && state.place.key === b.key ? null : { key: b.key, label: b.sub && b.key[0] === "r" ? `${b.title}, ${b.sub}` : b.title };
-    renderPlaceFilter();
-    renderMarkers();
-    renderTables();
+    // The same way as every other filter, history entry included: swiping
+    // back after a click on the map clears the place, as it clears a chip.
+    applyFilters();
   }
   function renderPlaceFilter() {
     $("placeFilter").hidden = !state.place;
@@ -1880,7 +1965,9 @@
       s.textContent = b.sub;
       tip.appendChild(s);
     }
-    for (const k of GROUPS) {
+    // A group hidden in the legend has no row: "Inbound 0" where thirty are
+    // connected would be wrong. Only the delivering peer can bring one back.
+    for (const k of GROUPS.filter((g) => !mapHidden.has(g) || b[g])) {
       const row = document.createElement("div");
       row.className = "row";
       const sw = document.createElement("span");
@@ -2040,19 +2127,36 @@
 
 
   // ---------- not on the map (collapsible side panel) ----------
-  function setSide(open) {
+  // `remember`: the reader's own click, kept for the next visit. Opened by
+  // mapFollowsPeers it is not, and not stored either.
+  function setSide(open, remember = true) {
     $("unplaced").hidden = !open;
     $("sideToggle").setAttribute("aria-expanded", String(open));
-    store.set(SIDE_KEY, open ? "1" : "0");
+    if (remember) { store.set(SIDE_KEY, open ? "1" : "0"); sideTouched = true; }
     if (state.world && state.data) placeMarkers(); // map width changed
   }
+  let sideTouched = false;
   $("sideToggle").addEventListener("click", () => setSide($("unplaced").hidden));
   // Like every other fold, a tap on what it opened closes it again - unless
   // the reader is selecting text.
   $("unplaced").addEventListener("click", () => {
     if (String(window.getSelection()).length === 0) setSide(false);
   });
-  setSide(store.get(SIDE_KEY) === "1"); // collapsed unless opened before
+  setSide(store.get(SIDE_KEY) === "1", false); // collapsed unless opened before
+
+  // Not one peer with a place (only Tor or I2P, say): no empty world and no
+  // legend for it, and the list of what is not on the map open in its place.
+  // Once a peer has a place, the world is back and the list as the reader
+  // keeps it (15.11.2026). A click on the list in between is theirs.
+  let worldShown = true;
+  function mapFollowsPeers(anyPlaced) {
+    if (anyPlaced === worldShown) return;
+    worldShown = anyPlaced;
+    $("mapWrap").hidden = !anyPlaced;
+    $("mapCard").querySelector(".map-legend").hidden = !anyPlaced;
+    if (!sideTouched) setSide(anyPlaced ? store.get(SIDE_KEY) === "1" : true, false);
+    if (anyPlaced) window.dispatchEvent(new Event("resize"));
+  }
 
   function renderUnplaced() {
     const rows = new Map();
@@ -2844,14 +2948,20 @@
     // A panel left open for a peer that is gone must not pop open when its address comes back.
     const live = new Set(state.data.peers.map((p) => p.group + " " + p.addr));
     // An offline manual peer is a row too, and stays open like any other.
-    for (const r of dashboard().offlineManual()) live.add("manual " + r.address);
+    for (const r of dashboard().offlineManual(new Set(state.data.peers.map((p) => p.addr)))) live.add("manual " + r.address);
     for (const k of state.openRows) if (!live.has(k)) state.openRows.delete(k);
     const root = $("tables");
     root.textContent = "";
     root.removeAttribute("aria-busy");
     let picksShown = false;
+    const shown = new Map();
     for (const g of GROUPS) {
       const { peers, all, kindPool } = groupPeers(g);
+      // A row removed or disconnected a moment ago stands where it was, as
+      // it was last shown, saying so (see markLeaving in app.js).
+      // Not under a filter: a slim row there would stand outside it.
+      const rows = state.place || state.group ? peers : peers.concat([...lastShown.values()].filter((r) => r.g === g && !peers.some((p) => p.addr === r.p.addr)
+        && dashboard().leaving && dashboard().leaving(r.p.addr)).map((r) => ({ ...r.p, leaving: dashboard().leaving(r.p.addr), leftAt: r.i })));
       const card = document.createElement("section");
       card.className = "card group-card";
       card.id = "group-" + g;
@@ -2871,7 +2981,7 @@
         card.appendChild(spread);
       }
 
-      if (!peers.length) {
+      if (!rows.length) {
         const p = document.createElement("p");
         p.className = "empty";
         // No inbound at all is what most nodes see; say what brings them.
@@ -2888,10 +2998,12 @@
       // far down the page, so it shows its top ten - in the order of the
       // current sort - with a toggle for the rest. The others never get long.
       const limited = g === "inbound" && peers.length > INBOUND_LIMIT;
-      card.appendChild(peerTable(g, peers, limited && !state.showAllInbound));
+      card.appendChild(peerTable(g, rows, limited && !state.showAllInbound));
+      rows.forEach((p, i) => shown.set(p.addr, { g, p, i }));
       if (limited) showAllButton(card, head.summary, g, peers);
       root.appendChild(card);
     }
+    lastShown = shown;
     // A second kind turned up since a name was picked: no card shows the name
     // chips any more, so the pick goes too rather than filter two kinds unseen.
     // Asked of all cards together: the pick sits in one of them, and asked of
@@ -2905,6 +3017,33 @@
     fitTables();
     stickOn();
     restoreFocus(root, focused, focusKey);
+  }
+
+  // "Brought by" in a block's details leads here: the peer's row, open, in
+  // view and lit up once, whatever hid it - a filter, a folded card or the
+  // inbound top ten. The open row is a history entry like any other, so
+  // swiping back closes it. False when the peer is gone.
+  function revealPeer(addr) {
+    const p = state.data.peers.find((x) => x.addr === addr);
+    if (!p) return false;
+    const g = p.group;
+    const key = g + " " + addr;
+    if (!groupPeers(g).peers.some((x) => x.addr === addr)) {
+      state.group = state.kind = state.sub = state.label = state.place = null;
+    }
+    if (folded.delete("group-" + g)) store.set(FOLD_KEY, JSON.stringify([...folded]));
+    state.openRows.clear();
+    state.openRows.add(key);
+    const find = () => document.querySelector(`#tables tr[data-anchor="${CSS.escape(key)}"]`);
+    applyFilters();
+    if (!find() && g === "inbound") { state.showAllInbound = true; renderTables(); }
+    const tr = find();
+    if (!tr) return false;
+    tr.scrollIntoView({ block: "center", behavior: glide() });
+    tr.classList.remove("jumped");
+    void tr.offsetWidth; // restart the light-up on a second click
+    tr.classList.add("jumped");
+    return true;
   }
 
   // The peers of one group as the filters leave them: `all` before any
@@ -2922,7 +3061,7 @@
     // dashboard's picture is older: it stands once, as connected.
     if (g === "manual" && !state.place && !state.group) {
       const here = new Set(state.data.peers.map((p) => p.addr));
-      peers = peers.concat(dashboard().offlineManual().filter((r) => !here.has(r.address)).map(offlinePeer));
+      peers = peers.concat(dashboard().offlineManual(here).filter((r) => !here.has(r.address)).map(offlinePeer));
     }
     return { peers, all, kindPool };
   }
@@ -3028,6 +3167,14 @@
       const x = col.val(a), y = col.val(b);
       return (x < y ? -1 : x > y ? 1 : 0) * s.dir;
     });
+    // A leaving row keeps its place, not where the sort would put it now:
+    // among equals it fell to the end of the group.
+    const back = peers.filter((p) => p.leaving).sort((a, b) => a.leftAt - b.leftAt);
+    if (back.length) {
+      const rest = peers.filter((p) => !p.leaving);
+      for (const p of back) rest.splice(Math.min(p.leftAt, rest.length), 0, p);
+      peers.splice(0, peers.length, ...rest);
+    }
 
     const wrap = document.createElement("div");
     wrap.className = "scroll";
@@ -3060,10 +3207,45 @@
     return wrap;
   }
 
+  // A row removed or disconnected here comes to stand where its button was
+  // tapped: its open panel closing would otherwise pull what was below up
+  // under the finger, a screen's height on a phone (16.11.2026).
+  // `y`: the scroll position before this drawing. A reader who scrolled
+  // since the tap keeps their own place.
+  function placeLeaving(y) {
+    const pl = dashboard().leavingPlace && dashboard().leavingPlace(false);
+    if (!pl) return;
+    if (Math.abs(y - pl.y) > 2) { dashboard().leavingPlace(true); return; }
+    const tr = [...document.querySelectorAll("#tables tr.leaving")].find((t) => t.dataset.anchor.endsWith(" " + pl.address));
+    if (!tr) return;
+    dashboard().leavingPlace(true);
+    const d = tr.getBoundingClientRect().top - pl.top;
+    if (Math.abs(d) >= 1) window.scrollBy(0, d);
+  }
+
+  // The rows of the last drawing, by address: what a leaving row looks like.
+  let lastShown = new Map();
+
   // One peer's row, and its open detail below it if it was left open.
   function peerRow(tbody, g, p) {
     const tr = document.createElement("tr");
     tr.dataset.anchor = g + " " + p.addr;
+    if (p.leaving) {
+      // Closed and slim: the address and what happened to it.
+      tr.className = "leaving" + (dashboard().leavingOut && dashboard().leavingOut(p.addr) ? " out" : "");
+      const td = document.createElement("td");
+      td.colSpan = COLS.length;
+      td.className = "leave-cell";
+      const div = document.createElement("div");
+      div.className = "leave";
+      const a = document.createElement("span");
+      a.textContent = p.addr;
+      div.append(a, " \u00b7 " + p.leaving);
+      td.appendChild(div);
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+      return;
+    }
     // The peer that brought the newest block, for as long as the star
     // is up - one rule for "just delivered", in the row and on the map.
     if (deliveredNow.has(p.addr)) tr.className = "delivered-now";

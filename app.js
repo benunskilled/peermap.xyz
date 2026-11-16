@@ -139,7 +139,7 @@ const KIND_RULES = [
   // EMPORION and its new name SYMMARTYS fetch headers for OpenTimestamps
   // verification (bitcoin_headers.py in alexar76/emporion). Bitflash's
   // wallet loads only headers and filter hashes (docs.bitflash.network).
-  [/BIP-157|^\/bip157-fetch:|kyoto|^Yuki \/|^\/VerifiedX:|^\/nakamoto:|^\/bitcoin-s:|^Stacks\/|\/CaribouSPV:|^\/EMPORION:|^\/SYMMARTYS:|^\/Bitflash:btc-light\/|^\/Notoshi\/$|^\/pyspv:|^\/chainhorn:|^\/Murmel:|^\/BitcoinSwift:|^\/haskoin-btc:|^libbtc |\/bitcoin-net:|^\/rust-spv:/i, 'a light client'],
+  [/BIP-157|^\/wuji-headers:|^\/bip157-fetch:|kyoto|^Yuki \/|^\/VerifiedX:|^\/nakamoto:|^\/bitcoin-s:|^Stacks\/|\/CaribouSPV:|^\/EMPORION:|^\/SYMMARTYS:|^\/Bitflash:btc-light\/|^\/Notoshi\/$|^\/pyspv:|^\/chainhorn:|^\/Murmel:|^\/BitcoinSwift:|^\/haskoin-btc:|^libbtc |\/bitcoin-net:|^\/rust-spv:/i, 'a light client'],
 ];
 
 // Rules marked 'whole' read the whole agent: a pool or another chain may be
@@ -227,8 +227,7 @@ function fitTables() {
   // What the reader is looking at: the first heading or row at the top of the
   // window. When the layout changes, that stays where it was - restoring the
   // old scroll position instead threw the reader a screen or more down the
-  // moment the tables above turned into taller cards. (The panels opt out of
-  // the browser's own scroll anchoring, see .card in style.css.)
+  // moment the tables above turned into taller cards.
   const anchor = window.scrollY > 0
     ? [...document.querySelectorAll('h2, h3, .table-wrap tbody tr')].find((e) => {
       // A hidden element has a rect of zeros.
@@ -329,12 +328,22 @@ const LIST_COUNTS_MAX_AGE_MS = 45000;
 // own colour. Outbound leaves out the manual peers, which have a tile of
 // their own - as in the peer list, so the three groups add up to the total.
 // Full relay and block relay are told apart in the Outbound table below.
+// The Manual tile counts connected peers, but a locked peer that is offline
+// still holds its slot: with one, the tile says how many slots are used, so
+// it never reads "7 of 8" above a list that has no slot free. A candidate
+// Slot Fill is testing holds a slot too, so it counts there - but not in the
+// big number (peer list, 3-render.js): it comes and goes every few seconds,
+// and the number jumped with each (15.11.2026).
+function manualSlotsUsed() {
+  return (lastPeerRanking || []).filter((p) => p.trusted && !justGone.has(p.address)).length;
+}
 function drawTiles({ inbound, outbound, manual }) {
+  const used = manualSlotsUsed();
   const stats = [
     ['Total', inbound + outbound + manual, ''],
     ['Inbound', inbound, 'inbound'],
     ['Outbound', outbound, 'outbound'],
-    ['Manual', manual, 'manual', `of ${MAX_MANUAL_PEERS}`],
+    ['Manual', manual, 'manual', used > manual ? `${used}/${MAX_MANUAL_PEERS} slots used` : `of ${MAX_MANUAL_PEERS}`],
   ];
   document.getElementById('live-stats').innerHTML = stats
     .map(([label, n, k, sub]) => `<div class="stat${k ? ' s-' + k : ''}"><div class="l">${label}</div><div class="n">${n}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`)
@@ -468,8 +477,9 @@ function actionsCell(p, { lock = '' } = {}) {
   //
   // A source-obscured peer's "address" is Docker's own relay gateway, not the
   // peer's real one (see queries/ranking-row.js). A local Umbrel app is not a peer worth
-  // acting on. And a Tor, I2P or CJDNS peer reaches us over a network this
-  // container cannot dial out on, so there is no address to call back.
+  // acting on. And a Tor or I2P peer that dialled in carries the address of
+  // Umbrel's proxy, a CJDNS one a network Core has no proxy for: there is no
+  // address to call back.
   //
   // The third used to print "Tor only" where the button goes, which was a
   // word about the peer standing in a place that is otherwise a reason, and
@@ -488,7 +498,12 @@ function actionsCell(p, { lock = '' } = {}) {
   // is not to be trusted with it.
   // The peers service's word where it has one, the name rules otherwise.
   const disguised = p.lion || (p.kind ? p.kind === 'Disguised' : kindRuleIndex(p.client) === MISSPELT_RULE);
-  const primary = ((p.sourceObscured || p.localUmbrelPeer || p.privateNetwork || disguised || (neverFirstReason(p) && !p.first))
+  // A Tor or I2P peer this node dialled carries its own address, and Core
+  // reaches it again by itself (15.11.2026): it can be added. One that
+  // dialled in carries the proxy's address, and CJDNS no proxy at all.
+  const unreachable = p.privateNetwork
+    && !((p.privateNetwork === 'Tor' || p.privateNetwork === 'I2P') && p.direction === 'outbound' && !p.proxiedPrivatePeer);
+  const primary = ((p.sourceObscured || p.localUmbrelPeer || unreachable || disguised || (neverFirstReason(p) && !p.first))
       ? placeholder
       : `<button class="secondary action-slot" data-action="add-manual" data-address="${escapeHtml(p.address)}">Add as Manual</button>`);
 
@@ -688,17 +703,21 @@ window.peerLab = {
   onTrial: (address) => (rankingByAddress.get(address) || {}).status === 'TESTING',
   // Manual peers that are not connected: they still hold their slot, and the
   // list shows them so they can be unlocked or removed.
-  offlineManual: () => (lastPeerRanking || []).filter((p) => p.trusted && !p.live && !justGone.has(p.address)),
+  // `present`: the addresses in the peer list now. A manual peer gone from it
+  // counts as offline at once, not when the ranking (20 s apart) says so:
+  // the row stood, went, and came back as offline 20 s later (16.11.2026).
+  offlineManual: (present) => (lastPeerRanking || []).filter((p) => p.trusted && !justGone.has(p.address)
+    && (!p.live || (present && !present.has(p.address)))),
   // "0 of 8 slots free · all kept", for the head of the manual list.
   manualSummary: () => {
     const manual = (lastPeerRanking || []).filter((p) => p.trusted && !justGone.has(p.address));
     const kept = manual.filter((p) => p.kept).length;
-    const free = Math.max(0, MAX_MANUAL_PEERS - manual.length);
+    const free = Math.max(0, MAX_MANUAL_PEERS - manualSlotsUsed());
     return `${free} of ${MAX_MANUAL_PEERS} slots free` + (kept ? ` \u00b7 ${kept === manual.length ? 'all locked' : `${kept} locked`}` : '');
   },
   foldable,
   // The peer list's counts of connected peers per group, for the tiles.
-  liveCounts: (counts) => { listCounts = counts; listCountsAt = Date.now(); drawTiles(counts); },
+  liveCounts: (counts) => { listCounts = counts; listCountsAt = Date.now(); drawTiles(counts); renderSlotBook(); },
   foldInPlace,
   flagOf: (cc) => flagOf(cc),
   fmtDuration: (ms) => fmtDuration(ms),
@@ -710,6 +729,17 @@ window.peerLab = {
   acting: () => actionsInFlight > 0,
   // Disconnected or removed here a moment ago: not in the list any more.
   gone: (address) => justGone.has(address),
+  // Its row stays a moment with this word ("Removed"), or null.
+  leaving: (address) => (leaving.get(address) || {}).text || null,
+  // Its 5 s are over: drawn again in this last moment, it is already gliding.
+  leavingOut: (address) => { const l = leaving.get(address); return Boolean(l && Date.now() - l.at >= LEAVE_MS); },
+  // The place for the slim row, once: `take` says it has been used.
+  leavingPlace: (take) => {
+    if (leavingPlace && Date.now() - leavingPlace.at > LEAVE_MS) leavingPlace = null;
+    const p = leavingPlace;
+    if (take) leavingPlace = null;
+    return p;
+  },
   // The peer list's part of Esc: closes something and says true, or false.
   onEscape: (step) => { escapeSteps.push(step); },
   actionsHtml: (address) => {
@@ -913,6 +943,31 @@ const GONE_MS = 40000;
 // two seconds after its interval, which /api/status sends (15 s by default).
 let GONE_RECHECK_MS = 17000;
 const justGone = new Map(); // address -> time it was removed or disconnected
+// The row of a peer removed or disconnected here stays a moment, closed and
+// slim, saying so, then glides out (16.11.2026: the row and its open panel
+// went at once, and on a phone everything below jumped a screen up under the
+// finger). The list keeps the row; this says how long and what it says.
+const LEAVE_MS = 5000;
+const GLIDE_MS = 400;
+const leaving = new Map(); // address -> { at, text }
+// Where on screen the button was tapped: the slim row comes to stand there,
+// so the panel closing does not pull what was below up under the finger.
+let leavingPlace = null; // { address, top, at }
+function markLeaving(address, text, top) {
+  const at = Date.now();
+  leaving.set(address, { at, text });
+  leavingPlace = typeof top === 'number' ? { address, top, at, y: window.scrollY } : null;
+  window.dispatchEvent(new Event('peerlab:ranking'));
+  setTimeout(() => {
+    for (const tr of document.querySelectorAll('#tables tr.leaving')) {
+      if (tr.dataset.anchor && tr.dataset.anchor.endsWith(' ' + address)) tr.classList.add('out');
+    }
+  }, LEAVE_MS);
+  setTimeout(() => {
+    if (leaving.get(address) && leaving.get(address).at === at) leaving.delete(address);
+    window.dispatchEvent(new Event('peerlab:ranking'));
+  }, LEAVE_MS + GLIDE_MS);
+}
 const recheckGone = () => setTimeout(() => refreshPeers().catch(() => {}), GONE_RECHECK_MS);
 
 // A counter, not a flag. A boolean only covered the time the POST was in
@@ -924,13 +979,18 @@ const recheckGone = () => setTimeout(() => refreshPeers().catch(() => {}), GONE_
 // counter across the await discards any response that was already in flight
 // when the state changed.
 let rotationToggleEpoch = 0;
+// The same for the picked regions: a poll asked before a tap must not put
+// back the picks from before it (review, 15.11.2026). picksSending holds the
+// buttons while a tap is on its way.
+let picksEpoch = 0;
+let picksSending = false;
 
 // Only ever the actions this app writes, and only as a class name from a fixed
 // list. This was the single place in the file where a value went into
 // innerHTML - into a class attribute AND the text - without escaping. Nothing
 // a Bitcoin peer controls can reach it today, which is exactly the kind of
 // reasoning that stops being true after a refactor.
-const ROTATION_ACTIONS = new Set(['promote', 'retire', 'manual', 'unmanual', 'disconnect', 'trial']);
+const ROTATION_ACTIONS = new Set(['promote', 'retire', 'manual', 'unmanual', 'disconnect', 'trial', 'rejected']);
 function rotationActionClass(action) {
   return ROTATION_ACTIONS.has(action) ? `rotation-${action}` : 'offline';
 }
@@ -945,6 +1005,8 @@ function rotationActionLabel(action) {
   if (action === 'manual') return 'Added by hand';
   if (action === 'unmanual') return 'Removed by hand';
   if (action === 'disconnect') return 'Disconnected by hand';
+  // A candidate that was not what it said: another chain, a disguised Core.
+  if (action === 'rejected') return 'Not kept';
   return action;
 }
 
@@ -955,14 +1017,18 @@ let rotationSeq = 0;
 async function refreshRotation() {
   const seq = ++rotationSeq;
   const epochAtRequest = rotationToggleEpoch;
+  const picksAtRequest = picksEpoch;
   const data = await api('/api/rotation');
   if (seq !== rotationSeq || rotationToggleEpoch !== epochAtRequest) return;
   const toggle = document.getElementById('rotation-toggle');
   if (toggle) toggle.checked = Boolean(data.enabled);
   foldSums();
 
-  lastSlotStatus = { enabled: Boolean(data.enabled), status: data.status || null, trialWhere: data.trialWhere || null };
+  // Picks tapped since this was asked for are the page's, not this answer's.
+  const picked = picksAtRequest === picksEpoch ? data.picked || [] : (lastSlotStatus && lastSlotStatus.picked) || [];
+  lastSlotStatus = { enabled: Boolean(data.enabled), status: data.status || null, trialWhere: data.trialWhere || null, trialsWhere: data.trialsWhere || [], picked };
   renderSlotStatus();
+  renderSlotBook();
   // The slow round speeds up while a trial runs.
   const trialNow = Boolean(data.enabled && data.status && data.status.state === 'trial');
   window.dispatchEvent(new CustomEvent('peerlab:slotstatus', { detail: { trial: trialNow } }));
@@ -982,15 +1048,75 @@ const LAST_TRY_WHY = {
   no_services: 'connected, but serves no blocks',
   height_unknown: 'connected, but never showed which chain it is on',
   height_wrong: 'is not on our chain',
-  disguised: "is not the Core it names",
+  disguised: "is disguised, not the Core it names",
+  other_chain: 'follows another chain',
 };
+// "other_chain:BLAKE2b fork": the code, and the chain's name after it.
+function whyText(reason) {
+  const r = String(reason || '');
+  const cut = r.indexOf(':');
+  const code = cut < 0 ? r : r.slice(0, cut);
+  const detail = cut < 0 ? '' : r.slice(cut + 1);
+  return `${LAST_TRY_WHY[code] || 'was not kept'}${detail ? ` (${detail})` : ''}`;
+}
 function lastTryText(st) {
   const l = st && st.lastTry;
   if (!l) return '';
   const where = l.country ? countryName(l.country) : l.region;
-  return ` The peer before${where ? `, in ${escapeHtml(where)},` : ''} ${LAST_TRY_WHY[l.reason] || 'was not kept'}.`;
+  // Plain text, as all of slotStatusText: escaped where it goes into the
+  // page (nowRow, rotationEntryRow), once - escaped here too, the trial rows
+  // showed "couldn&#39;t" (15.11.2026).
+  return ` The peer before${where ? `, in ${where},` : ''} ${whyText(l.reason)}.`;
 }
-function slotStatusText(st, now) {
+// "8 of 8 slots used · 4,812 addresses to pick from", and per region under
+// it, each a button to pick it (15.11.2026). A region with none shows 0 on
+// its button; the line does not repeat it (16.11.2026).
+const BOOK_REGIONS = { AF: 'Africa', AS: 'Asia', EU: 'Europe', NA: 'North America', OC: 'Oceania', SA: 'South America', TOR: 'Tor', I2P: 'I2P' };
+function renderSlotBook() {
+  const box = document.getElementById('slot-book');
+  if (!box) return;
+  const s = lastSlotStatus;
+  const b = s && s.enabled && s.status && s.status.book;
+  box.hidden = !b;
+  if (!b) return;
+  // The slots as the manual list counts them right now, not as of the last
+  // pass: the two sit close together on the page and must agree.
+  const used = manualSlotsUsed();
+  const n = (x) => Number(x).toLocaleString('en-US');
+  // The buttons in a fixed order, so none moves under a finger when a count
+  // changes; a picked region the book no longer lists (Tor gone) still has
+  // its button, to be unpicked.
+  const counts = { ...Object.fromEntries((s.picked || []).map((r) => [r, 0])), ...(b.regions || {}) };
+  const buttons = Object.keys(BOOK_REGIONS).filter((r) => r in counts).map((r) => [r, counts[r]]);
+  // A candidate on trial holds its slot before Core has connected to it: the
+  // Manual tile, which counts connected peers, is then that much lower
+  // (15.11.2026). Up to three at once.
+  const onTrial = s.status.state === 'trial' ? ((s.status.trials && s.status.trials.length) || 1) : 0;
+  const testing = onTrial ? ` \u00b7 ${onTrial} being tested` : '';
+  const picked = (s.picked || []).filter((r) => BOOK_REGIONS[r]);
+  const names = (list) => list.map((r) => BOOK_REGIONS[r]).join(', ');
+  document.getElementById('slot-book-sum').textContent = `${used} of ${MAX_MANUAL_PEERS} slots used${testing} \u00b7 ${n(b.total)} address${b.total === 1 ? '' : 'es'} to pick from`
+    + (picked.length ? ` \u00b7 your pick: ${names(picked)}` : '');
+  // Each region a switch (15.11.2026): picked, the next free slots go there.
+  // One with nothing to pick from cannot be picked, but stays to be unpicked.
+  const html = buttons.map(([r, c]) => {
+    const on = picked.includes(r);
+    return `<button type="button" class="region-pick${on ? ' on' : ''}" data-region="${escapeHtml(r)}" aria-pressed="${on}"${(!c && !on) || picksSending ? ' disabled' : ''}>${escapeHtml(BOOK_REGIONS[r] || r)} <b>${n(c)}</b></button>`;
+  }).join('');
+  // Drawn again only when something changed: a redraw every poll took the
+  // keyboard focus off the button.
+  const box2 = document.getElementById('slot-book-regions');
+  if (box2.dataset.drawn !== html) { box2.innerHTML = html; box2.dataset.drawn = html; }
+  // The last look's word, only if it was about these very picks.
+  const pk = s.status.picks;
+  const same = pk && pk.regions.length === picked.length && pk.regions.every((r) => picked.includes(r));
+  const empty = same && pk.empty && picked.length;
+  document.getElementById('slot-pick-note').textContent = !picked.length
+    ? 'Tap a region to give it the next free slots.'
+    : empty ? `Nothing in ${names(picked)} can be added right now, back to the usual pick.`
+    : `The next free slots go to ${names(picked)}. Tap again to undo.`;
+}
+function slotStatusText(st, now, trial = st && st.trial) {
   if (!st) return { state: 'new', head: 'Starting.', rest: 'Looking at your slots now.', short: 'on · starting' };
   const slots = st.slots || { used: 0, max: MAX_MANUAL_PEERS, offline: [] };
   const free = slots.max - slots.used;
@@ -999,13 +1125,14 @@ function slotStatusText(st, now) {
     case 'catching_up':
       return { state: 'core', head: 'Waiting for Bitcoin Core', rest: st.state === 'core' ? 'to respond.' : 'to catch up with the chain.', short: 'on · waiting for Core' };
     case 'trial': {
-      const t = st.trial;
+      const t = trial;
       const where = t.country ? countryName(t.country) : t.region;
       const doing = { connecting: 'Core is connecting to it.', headers: 'Connected, waiting for its first block.', checking: 'Connected, checking it.' }[t.phase] || 'Core is testing it.';
       return {
         state: 'trial',
-        head: `Testing a new peer${where ? ` in ${escapeHtml(where)}` : ''}.`,
-        rest: `${doing} Result in about ${minutes(Math.max(60000, t.decideBy - now))}.${lastTryText(st)}`,
+        head: `Testing a new peer${where ? ` in ${where}` : ''}.`,
+        // Why the peer before went: under the oldest candidate only.
+        rest: `${doing} Result in about ${minutes(Math.max(60000, t.decideBy - now))}.${!st.trial || t.address === st.trial.address ? lastTryText(st) : ''}`,
         short: 'on · testing a peer',
       };
     }
@@ -1013,7 +1140,7 @@ function slotStatusText(st, now) {
       const off = slots.offline || [];
       // freesInMs is from the pass that wrote the status, up to ten minutes ago.
       const since = st.at ? Math.max(0, now - st.at) : 0;
-      const peerIn = (o) => (o.where ? `Your peer in ${escapeHtml(o.where)}` : 'One peer');
+      const peerIn = (o) => (o.where ? `Your peer in ${o.where}` : 'One peer');
       const rest = off.length
         ? off.map((o) => (o.keeps ? `${peerIn(o)} is offline, but locked, so it keeps its slot.`
           : o.freesInMs == null ? `${peerIn(o)} is offline.`
@@ -1044,8 +1171,15 @@ function renderSlotStatus() {
   const row = nowRow(Date.now());
   const tbody = document.querySelector('#rotation-log-table tbody');
   if (lastRotationLog && row !== shownNow) {
-    if (row && shownNow && tbody && tbody.firstElementChild) {
-      tbody.firstElementChild.outerHTML = row.trim();
+    // As many top rows as before (one per candidate on trial): only those are
+    // replaced; a change in how many there are draws the whole log again.
+    const rows = (html) => (html.match(/<tr[\s>]/g) || []).length;
+    const n = rows(row);
+    if (row && shownNow && n === rows(shownNow) && tbody && tbody.children.length >= n) {
+      holdPlace(() => {
+        for (let i = 0; i < n; i++) tbody.firstElementChild.remove();
+        tbody.insertAdjacentHTML('afterbegin', row.trim());
+      });
       shownNow = row;
     } else {
       renderRotationLog(lastRotationLog);
@@ -1088,7 +1222,7 @@ function logPlace(entry) {
 // for the manual peers above; on a phone a card like a peer's (the last
 // cell, hidden in the table): place and action, address and when, the
 // provider under it as in the table, then why.
-function rotationEntryRow(entry) {
+function rotationEntryRow(entry, extra = '') {
   // An address can be long (Tor): cut with an ellipsis, the whole of it in a
   // tooltip only when it was cut (the mouseover handler below).
   const addr = `<span class="addr-txt">${escapeHtml(entry.address)}</span>`;
@@ -1105,8 +1239,8 @@ function rotationEntryRow(entry) {
       <td class="hint" title="${escapeHtml(new Date(entry.at).toLocaleString())}">${when}</td>
       <td>${pill}</td>
       ${address}
-      <td class="hint"${entry.replacedAddress ? ` title="In for ${escapeHtml(entry.replacedAddress)}"` : ''}>${escapeHtml(entry.note || '-')}</td>
-      <td class="log-card" data-label=""><div class="lc-top"><span class="lc-place">${logPlace(entry)}</span>${pill}</div><div class="lc-sub"><span class="lc-what">${addr}</span><span class="lc-when">${when}</span></div>${op}${why}</td>
+      <td class="hint"${entry.replacedAddress ? ` title="In for ${escapeHtml(entry.replacedAddress)}"` : ''}>${escapeHtml(entry.note || '-')}${extra}</td>
+      <td class="log-card" data-label=""><div class="lc-top"><span class="lc-place">${logPlace(entry)}</span>${pill}</div><div class="lc-sub"><span class="lc-what">${addr}</span><span class="lc-when">${when}</span></div>${op}${why}${extra}</td>
     </tr>`;
 }
 
@@ -1115,34 +1249,105 @@ function rotationEntryRow(entry) {
 // news - "Added", "Removed" - is written under it, and the row moves on to
 // the next state. A candidate on trial is a row like the others, with its
 // place and provider; any other state is its sentence, "All 8 slots in use."
-// head and rest are HTML already (slotStatusText escapes what it puts in).
+// head and rest are plain text, escaped where they go into the page (here,
+// rotationEntryRow).
 let shownNow = ''; // the top row as last drawn, '' for none
+// Under the top row while a slot is free: every candidate tried since it came
+// free, and what freed it (15.11.2026). Folded to one line; open stays open
+// across the redraws, which rewrite the row.
+let triesOpen = false;
+document.addEventListener('toggle', (e) => {
+  if (e.target.classList && e.target.classList.contains('slot-tries') && !e.target.classList.contains('slot-tries-before')) triesOpen = e.target.open;
+}, true);
+function triesHtml(st) {
+  return triesList(st && st.tries, 'since');
+}
+// Under the newest "Added": the candidates tried before it (15.11.2026).
+let triesBeforeOpen = false;
+document.addEventListener('toggle', (e) => {
+  if (e.target.classList && e.target.classList.contains('slot-tries-before')) triesBeforeOpen = e.target.open;
+}, true);
+function triesList(t, kind) {
+  if (!t || !t.tries || !t.tries.length) return '';
+  const hm = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const place = (w) => (w ? [w.country ? countryName(w.country) : w.regionName, w.operator].filter(Boolean).join(' \u00b7 ') : 'unknown place');
+  const line = (at, where, what, title) =>
+    `<li><span class="st-when">${hm(at)}</span><span class="st-where"${title ? ` title="${escapeHtml(title)}"` : ''}>${escapeHtml(where)}</span><span class="st-what">${escapeHtml(what)}</span></li>`;
+  const tried = t.tries.map((x) => {
+    const min = Math.max(1, Math.round((x.endedAt - x.startedAt) / 60000));
+    return line(x.startedAt, place(x.where), `${whyText(x.reason)} (${min} min)`, x.address);
+  });
+  const freed = (t.freed || []).slice().reverse().map((f) => line(f.at, place(f.where),
+    f.action === 'retire' ? 'offline too long, slot freed' : 'removed by hand, slot freed', f.address));
+  const n = t.total || t.tries.length;
+  // Not today: the day too, or "since 13:20" reads as an hour ago.
+  const day = new Date(t.since).toDateString() === new Date().toDateString() ? ''
+    : `${new Date(t.since).toLocaleDateString([], { day: 'numeric', month: 'short' })} `;
+  if (kind === 'before') {
+    return `<details class="slot-tries slot-tries-before"${triesBeforeOpen ? ' open' : ''}><summary>${n} tried before</summary><ul>${tried.join('')}</ul></details>`;
+  }
+  return `<details class="slot-tries"${triesOpen ? ' open' : ''}><summary>${n} tried since ${day}${hm(t.since)}</summary><ul>${tried.join('')}${freed.join('')}</ul></details>`;
+}
 function nowRow(now) {
   const s = lastSlotStatus;
   if (!s || !s.enabled) return '';
   const t = slotStatusText(s.status, now);
+  const tries = triesHtml(s.status);
+  // One row per candidate on trial, the oldest first; the list of tries
+  // under the first.
   if (s.status && s.status.state === 'trial' && s.status.trial) {
-    return rotationEntryRow({ action: 'trial', address: s.status.trial.address, at: s.status.trial.startedAt, where: s.trialWhere, note: t.rest });
+    const list = s.status.trials && s.status.trials.length ? s.status.trials : [s.status.trial];
+    return list.map((tr, i) => {
+      const where = (s.trialsWhere && s.trialsWhere[i]) || (i === 0 ? s.trialWhere : null);
+      return rotationEntryRow({ action: 'trial', address: tr.address, at: tr.startedAt, where, note: slotStatusText(s.status, now, tr).rest }, i === 0 ? tries : '');
+    }).join('');
   }
   const pill = '<span class="pill rotation-now">Now</span>';
-  const head = t.head.replace(/\.$/, '');
+  const head = escapeHtml(t.head.replace(/\.$/, ''));
+  const rest = escapeHtml(t.rest);
   return `
     <tr class="now-row">
       <td class="hint"></td>
       <td>${pill}</td>
       <td><b>${head}</b></td>
-      <td class="hint">${t.rest}</td>
-      <td class="log-card" data-label=""><div class="lc-top"><span class="lc-place">${head}</span>${pill}</div><div class="lc-why">${t.rest}</div></td>
+      <td class="hint">${rest}${tries}</td>
+      <td class="log-card" data-label=""><div class="lc-top"><span class="lc-place">${head}</span>${pill}</div><div class="lc-why">${rest}</div>${tries}</td>
     </tr>`;
 }
 
+// What the reader is looking at stays where it is while the Slot Fill log
+// above it grows or shrinks (16.11.2026: three rows "being tested" pushed
+// Stratum and Traffic 445 px down under somebody reading them). The anchor is
+// the topmost card or row on screen below the log's own top, as the peer list
+// keeps its rows (3-render.js holdAnchor).
+function holdPlace(change) {
+  const log = document.getElementById('rotation-log-table');
+  const from = log ? log.getBoundingClientRect().top : 0;
+  const onScreen = (e) => { const r = e.getBoundingClientRect(); return r.height && r.bottom > 0 && r.top < innerHeight && r.top > from; };
+  // Every candidate on screen, in page order: a full redraw of the log drops
+  // its rows, and then the next one still there (the card below) holds.
+  const seen = window.scrollY > 0 && from < 0
+    ? [...document.querySelectorAll('main .card[id], #rotation-log-table tbody tr')].filter(onScreen)
+      .map((e) => [e, e.getBoundingClientRect().top])
+    : [];
+  change();
+  const kept = seen.find(([e]) => e.isConnected);
+  if (kept) {
+    const d = kept[0].getBoundingClientRect().top - kept[1];
+    if (Math.abs(d) >= 1) window.scrollBy(0, d);
+  }
+}
+
 function renderRotationLog(log) {
+  holdPlace(() => drawRotationLog(log));
+}
+function drawRotationLog(log) {
   const tbody = document.querySelector('#rotation-log-table tbody');
   if (!tbody) return;
 
   const visible = showAllLog ? log : log.slice(0, ROTATION_LOG_LIMIT);
   shownNow = nowRow(Date.now());
-  tbody.innerHTML = (shownNow + visible.map((e) => rotationEntryRow(e)).join(''))
+  tbody.innerHTML = (shownNow + visible.map((e) => rotationEntryRow(e, e.tried ? triesList(e.tried, 'before') : '')).join(''))
     || `<tr><td colspan="4" class="hint">Nothing yet.</td></tr>`;
 
   const toggle = document.getElementById('rotation-log-toggle');
@@ -1496,6 +1701,29 @@ function manualAddResult(text, kind) {
   resultEl.className = kind === 'error' ? 'hint result-error' : 'hint result-ok';
 }
 
+// A tap on a region: the whole set goes to the node, which keeps it.
+document.getElementById('slot-book-regions').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button.region-pick');
+  if (!btn || btn.disabled || !lastSlotStatus) return;
+  const r = btn.dataset.region;
+  if (picksSending) return;
+  const now = new Set(lastSlotStatus.picked || []);
+  if (now.has(r)) now.delete(r); else now.add(r);
+  picksSending = true;
+  picksEpoch += 1;
+  renderSlotBook();
+  try {
+    const result = await api('/api/rotation/regions', { method: 'POST', body: JSON.stringify({ regions: [...now] }) });
+    lastSlotStatus.picked = result.picked;
+  } catch (err) {
+    showToast(`Could not change the regions: ${err.message}`, 'error');
+  } finally {
+    picksSending = false;
+    picksEpoch += 1;
+  }
+  renderSlotBook();
+});
+
 document.getElementById('manual-test-button').addEventListener('click', async () => {
   const input = document.getElementById('manual-add-input');
   if (!input.value.trim()) return;
@@ -1505,10 +1733,12 @@ document.getElementById('manual-test-button').addEventListener('click', async ()
     // Naming the port is the useful half of the answer for an inbound peer:
     // it is the port that peer's node actually listens on, which is never the
     // one its inbound connection to us came from.
-    manualAddResult(`reachable - a node answered at ${result.address}. Nothing was added.`, 'ok');
+    // Reached through Tor or I2P: not tested, and the answer says why.
+    if (result.untested) manualAddResult(result.message, 'ok');
+    else manualAddResult(`reachable - a node answered at ${result.address}. Nothing was added.`, 'ok');
   } catch (err) {
     // Refused before any test (a Tor name, a proxied network): "not reachable" would claim something nobody checked.
-    const untested = /cannot be tested|through a proxy|does not use/.test(err.message);
+    const untested = /cannot be tested|doesn't use|can't tell|your own node/.test(err.message);
     manualAddResult(`${untested ? 'not tested' : 'not reachable'} - ${err.message}`, 'error');
   } finally {
     manualAddBusy(false);
@@ -1522,7 +1752,8 @@ document.getElementById('manual-add-form').addEventListener('submit', async (e) 
   try {
     const result = await api('/api/peers/manual-add', { method: 'POST', body: JSON.stringify({ host: input.value }) });
     justGone.delete(result.address);
-    manualAddResult(result.warning ? `added ${result.address} - ${result.warning}` : `added ${result.address}`, 'ok');
+    const said = result.note || `added ${result.address}`;
+    manualAddResult(result.warning ? `${said} - ${result.warning}` : said, 'ok');
     input.value = '';
     refreshPeers().catch(() => {});
     refreshRotation();
@@ -1679,6 +1910,8 @@ document.body.addEventListener('click', async (e) => {
     pendingPeers.add(address);
   }
   const originalLabel = btn.textContent;
+  // Where the button stands when the answer comes (the reader may have scrolled meanwhile).
+  const tapTop = () => (btn.isConnected && btn.getBoundingClientRect().height ? btn.getBoundingClientRect().top : undefined);
   if (isPeerOrPoolAction) {
     btn.disabled = true;
     // The lock is an icon, not a label - replacing its text with an ellipsis
@@ -1694,7 +1927,9 @@ document.body.addEventListener('click', async (e) => {
   // Probing a host on 8333 then 9333 can take up to ~6s (3s timeout per
   // port) - show what's actually happening instead of leaving the UI
   // looking frozen/unresponsive during that wait.
-  if (action === 'add-manual') showToast(`Adding ${address} as manual peer - probing port 8333, then 9333…`, 'pending');
+  if (action === 'add-manual') {
+    showToast(`Adding ${address} as manual peer…`, 'pending');
+  }
   if (action === 'untrust') showToast(`Removing ${address}…`, 'pending');
   if (action === 'disconnect') showToast(`Disconnecting ${address}…`, 'pending');
   if (action === 'delete-pool') showToast('Removing pool…', 'pending');
@@ -1705,16 +1940,21 @@ document.body.addEventListener('click', async (e) => {
       // Added back within the wait after a removal: it belongs in the tables again.
       justGone.delete(address);
       justGone.delete(result.address);
+      leaving.delete(address);
+      leaving.delete(result.address);
       showToast(
-        result.warning
-          ? `Added and locked as manual peer: ${result.address} - ${result.warning}`
-          : `Added and locked as manual peer: ${result.address}. It now shows in the Manual Peers panel below.`,
+        result.note
+          ? `${result.note}${result.warning ? ` ${result.warning}` : ''}`
+          : result.warning
+            ? `Added and locked as manual peer: ${result.address} - ${result.warning}`
+            : `Added and locked as manual peer: ${result.address}. It now shows in the Manual Peers panel below.`,
         'success',
       );
     }
     if (action === 'untrust') {
       await api('/api/peers/untrust', { method: 'POST', body: JSON.stringify({ address }) });
       justGone.set(address, Date.now());
+      markLeaving(address, 'Removed', tapTop());
       recheckGone();
       showToast(`Removed ${address} as manual peer and disconnected it.`, 'success');
     }
@@ -1722,7 +1962,7 @@ document.body.addEventListener('click', async (e) => {
       await api('/api/peers/disconnect', { method: 'POST', body: JSON.stringify({ address }) });
       // A manual peer stays manual and Core dials it again, so only a non-manual one leaves the tables.
       const was = (lastPeerRanking || []).find((p) => p.address === address);
-      if (!was || !was.trusted) justGone.set(address, Date.now());
+      if (!was || !was.trusted) { justGone.set(address, Date.now()); markLeaving(address, 'Disconnected', tapTop()); }
       recheckGone();
       showToast(`Disconnected ${address}.`, 'success');
     }
