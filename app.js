@@ -109,10 +109,10 @@ const KIND_RULES = [
   // Core's name misspelt ("/Sat0shi:", "/Satoshi2:"): Disguised in the peer list.
   // What it runs is unknown, so it is not struck - and it comes first, so the
   // rest of its agent is not read as a crawler or a wallet either.
-  [/^\/Sat0shi:|^\/Satoshi[0-9X]+:|^Satoshi:/, null, 'whole'],
+  [/^\/Sat0shi:|^\/Satoshi[0-9X]+:|^Satoshi:|^\/Satoshi:[^/]*$/, null, 'whole'],
   // Mining pool software speaking p2p, or a node whose operator says in the
   // bracketed comment that it belongs to a pool. Relays.
-  [/ckpool|^\/ckp2p:|^\/CKCoinD:|\([^)]*pool[^)]*\)|^\/P2Pool:|^\/[^:/(]*pool[^:/(]*:/i, null, 'no-mempool'],
+  [/ckpool|^\/ckp2p:|^\/CKCoinD:|\([^)]*pool[^)]*\)|^\/P2Pool:|^\/[^:/(]*pool[^:/(]*:|^\/miningcore-btc-solo:/i, null, 'no-mempool'],
   // Bitcoin Classic's "(EB8)" is Bitcoin Cash's block size; SuperBitcoin,
   // Irium and VDS are forks and altcoins of their own. Bitcoin Purity, a hard
   // fork of Knots, says "/Satoshi:29.4/Purity:1.1.0/".
@@ -139,7 +139,7 @@ const KIND_RULES = [
   // EMPORION and its new name SYMMARTYS fetch headers for OpenTimestamps
   // verification (bitcoin_headers.py in alexar76/emporion). Bitflash's
   // wallet loads only headers and filter hashes (docs.bitflash.network).
-  [/BIP-157|^\/wuji-headers:|^\/bip157-fetch:|kyoto|^Yuki \/|^\/VerifiedX:|^\/nakamoto:|^\/bitcoin-s:|^Stacks\/|\/CaribouSPV:|^\/EMPORION:|^\/SYMMARTYS:|^\/Bitflash:btc-light\/|^\/Notoshi\/$|^\/pyspv:|^\/chainhorn:|^\/Murmel:|^\/BitcoinSwift:|^\/haskoin-btc:|^libbtc |\/bitcoin-net:|^\/rust-spv:/i, 'a light client'],
+  [/BIP-157|^\/wuji-headers:|^\/bip157-fetch:|kyoto|^Yuki \/|^\/VerifiedX:|^\/nakamoto:|^\/bitcoin-s:|^Stacks\/|\/CaribouSPV:|^\/EMPORION:|^\/SYMMARTYS:|^\/Bitflash:btc-light\/|^\/Notoshi\/$|^\/pyspv:|^\/chainhorn:|^\/Murmel:|^\/BitcoinSwift:|^\/haskoin-btc:|^libbtc |\/bitcoin-net:|^\/rust-spv:|^\/pcoc-bari:/i, 'a light client'],
 ];
 
 // Rules marked 'whole' read the whole agent: a pool or another chain may be
@@ -990,7 +990,7 @@ let picksSending = false;
 // innerHTML - into a class attribute AND the text - without escaping. Nothing
 // a Bitcoin peer controls can reach it today, which is exactly the kind of
 // reasoning that stops being true after a refactor.
-const ROTATION_ACTIONS = new Set(['promote', 'retire', 'manual', 'unmanual', 'disconnect', 'trial', 'rejected']);
+const ROTATION_ACTIONS = new Set(['promote', 'retire', 'bumped', 'manual', 'unmanual', 'disconnect', 'trial', 'rejected']);
 function rotationActionClass(action) {
   return ROTATION_ACTIONS.has(action) ? `rotation-${action}` : 'offline';
 }
@@ -1002,6 +1002,8 @@ function rotationActionLabel(action) {
   if (action === 'trial') return 'Testing';
   // Offline past its grace: the slot is free for the next candidate.
   if (action === 'retire') return 'Removed';
+  // Gave its slot to a peer added by hand while all eight were taken.
+  if (action === 'bumped') return 'Removed';
   if (action === 'manual') return 'Added by hand';
   if (action === 'unmanual') return 'Removed by hand';
   if (action === 'disconnect') return 'Disconnected by hand';
@@ -1066,10 +1068,13 @@ function lastTryText(st) {
   // Plain text, as all of slotStatusText: escaped where it goes into the
   // page (nowRow, rotationEntryRow), once - escaped here too, the trial rows
   // showed "couldn&#39;t" (15.11.2026).
-  return ` The peer before${where ? `, in ${where},` : ''} ${whyText(l.reason)}.`;
+  // "An earlier peer": with up to three on trial, "the peer before" read as
+  // one of them - "The peer before, in Australia, couldn't be reached" right
+  // above a candidate in Australia still being tested (17.11.2026).
+  return ` An earlier peer${where ? ` in ${where}` : ''} ${whyText(l.reason)}.`;
 }
-// "8 of 8 slots used · 4,812 addresses to pick from", and per region under
-// it, each a button to pick it (15.11.2026). A region with none shows 0 on
+// "8 of 8 slots used", then "Pick from 4,812 addresses" with a button per
+// region to pick it (15.11.2026; always shown since 17.11.2026). A region with none shows 0 on
 // its button; the line does not repeat it (16.11.2026).
 const BOOK_REGIONS = { AF: 'Africa', AS: 'Asia', EU: 'Europe', NA: 'North America', OC: 'Oceania', SA: 'South America', TOR: 'Tor', I2P: 'I2P' };
 function renderSlotBook() {
@@ -1095,8 +1100,8 @@ function renderSlotBook() {
   const testing = onTrial ? ` \u00b7 ${onTrial} being tested` : '';
   const picked = (s.picked || []).filter((r) => BOOK_REGIONS[r]);
   const names = (list) => list.map((r) => BOOK_REGIONS[r]).join(', ');
-  document.getElementById('slot-book-sum').textContent = `${used} of ${MAX_MANUAL_PEERS} slots used${testing} \u00b7 ${n(b.total)} address${b.total === 1 ? '' : 'es'} to pick from`
-    + (picked.length ? ` \u00b7 your pick: ${names(picked)}` : '');
+  document.getElementById('slot-book-sum').textContent = `${used} of ${MAX_MANUAL_PEERS} slots used${testing}`;
+  document.getElementById('slot-book-pick').textContent = `Pick from ${n(b.total)} address${b.total === 1 ? '' : 'es'}`;
   // Each region a switch (15.11.2026): picked, the next free slots go there.
   // One with nothing to pick from cannot be picked, but stays to be unpicked.
   const html = buttons.map(([r, c]) => {
@@ -1116,6 +1121,9 @@ function renderSlotBook() {
     : empty ? `Nothing in ${names(picked)} can be added right now, back to the usual pick.`
     : `The next free slots go to ${names(picked)}. Tap again to undo.`;
 }
+// The candidates on trial, oldest first as the server keeps them.
+const trialList = (st) => (st && st.trials && st.trials.length ? st.trials : st && st.trial ? [st.trial] : []);
+const newestTrial = (st) => trialList(st).at(-1) || {};
 function slotStatusText(st, now, trial = st && st.trial) {
   if (!st) return { state: 'new', head: 'Starting.', rest: 'Looking at your slots now.', short: 'on · starting' };
   const slots = st.slots || { used: 0, max: MAX_MANUAL_PEERS, offline: [] };
@@ -1131,8 +1139,8 @@ function slotStatusText(st, now, trial = st && st.trial) {
       return {
         state: 'trial',
         head: `Testing a new peer${where ? ` in ${where}` : ''}.`,
-        // Why the peer before went: under the oldest candidate only.
-        rest: `${doing} Result in about ${minutes(Math.max(60000, t.decideBy - now))}.${!st.trial || t.address === st.trial.address ? lastTryText(st) : ''}`,
+        // Why an earlier one went: under the newest candidate only, the top row.
+        rest: `${doing} Result in about ${minutes(Math.max(60000, t.decideBy - now))}.${t.address === newestTrial(st).address ? lastTryText(st) : ''}`,
         short: 'on · testing a peer',
       };
     }
@@ -1293,14 +1301,16 @@ function nowRow(now) {
   if (!s || !s.enabled) return '';
   const t = slotStatusText(s.status, now);
   const tries = triesHtml(s.status);
-  // One row per candidate on trial, the oldest first; the list of tries
-  // under the first.
+  // One row per candidate on trial, the newest first like the log under
+  // them (17.11.2026: oldest first above a log newest first read as out of
+  // order); the list of tries under the top row.
   if (s.status && s.status.state === 'trial' && s.status.trial) {
-    const list = s.status.trials && s.status.trials.length ? s.status.trials : [s.status.trial];
+    const list = trialList(s.status);
     return list.map((tr, i) => {
       const where = (s.trialsWhere && s.trialsWhere[i]) || (i === 0 ? s.trialWhere : null);
-      return rotationEntryRow({ action: 'trial', address: tr.address, at: tr.startedAt, where, note: slotStatusText(s.status, now, tr).rest }, i === 0 ? tries : '');
-    }).join('');
+      return { tr, where };
+    }).reverse().map(({ tr, where }, i) =>
+      rotationEntryRow({ action: 'trial', address: tr.address, at: tr.startedAt, where, note: slotStatusText(s.status, now, tr).rest }, i === 0 ? tries : '')).join('');
   }
   const pill = '<span class="pill rotation-now">Now</span>';
   const head = escapeHtml(t.head.replace(/\.$/, ''));
@@ -1782,6 +1792,8 @@ document.getElementById('pool-add-form').addEventListener('submit', async (e) =>
     });
     resultEl.textContent = 'added';
     label.value = ''; host.value = ''; port.value = '';
+    // The "✓ found" mark follows at once, not after the five-minute wait.
+    localPoolsAtMs = 0;
     refreshPools();
     poolResultTimer = setTimeout(() => { resultEl.textContent = ''; }, 5000);
   } catch (err) {
@@ -1821,37 +1833,25 @@ function showToast(message, kind) {
 // with the container name and internal stratum port of each and why those
 // differ from what a miner on the LAN uses, lives in src/lib/local-pools.js;
 // /api/pools/local hands it over together with which of them are installed.
-// The buttons are always there - a pool declined in the "found" note below
-// can still be added any time.
+// A pool app found on this Umbrel and not yet added stands out in the same
+// row ("✓ found") and is added with one tap; the others fill the form.
+// A separate "Found on this Umbrel" note above the row was overlooked.
 let localPoolTemplates = {};
-
-// Pools found on this Umbrel and not yet added are offered once, until the
-// user adds or declines them. Declined ones are remembered in this browser
-// only; the quick-fill buttons stay either way.
-const POOLS_DISMISSED_KEY = 'lab.localPoolsDismissed';
-function dismissedPools() {
-  try { return new Set(JSON.parse(localStorage.getItem(POOLS_DISMISSED_KEY) || '[]')); } catch { return new Set(); }
-}
-let foundPools = [];
-// "A", "A and B", "A, B and C"
-function listLabels(labels) {
-  return labels.length < 3 ? labels.join(' and ') : `${labels.slice(0, -1).join(', ')} and ${labels.at(-1)}`;
-}
 
 async function refreshLocalPools() {
   let list;
   localPoolsAtMs = Date.now();
   try { list = await api('/api/pools/local'); } catch { localPoolsAtMs = 0; return; }
   localPoolTemplates = Object.fromEntries(list.map((p) => [p.key, p]));
-  const dismissed = dismissedPools();
-  foundPools = list.filter((p) => p.installed && !p.added && !dismissed.has(p.key));
-  const box = document.getElementById('pool-found');
-  if (!box) return;
-  box.hidden = foundPools.length === 0;
-  if (foundPools.length) {
-    document.getElementById('pool-found-text').textContent =
-      `Found on this Umbrel: ${foundPools.map((p) => p.label).join(', ')}.`;
-  }
+  document.querySelectorAll('#pool-templates button[data-template]').forEach((btn) => {
+    const t = localPoolTemplates[btn.dataset.template];
+    const found = Boolean(t && t.installed && !t.added);
+    btn.classList.toggle('secondary', !found);
+    btn.dataset.action = found ? 'add-found-pool' : 'fill-pool-template';
+    btn.textContent = found ? `${t.label} ✓ found` : (t ? t.label : btn.textContent);
+    if (found) btn.title = `Found on this Umbrel - tap to add ${t.label} to Stratum Race`;
+    else btn.removeAttribute('title');
+  });
 }
 
 document.body.addEventListener('click', async (e) => {
@@ -1859,33 +1859,24 @@ document.body.addEventListener('click', async (e) => {
   if (!btn) return;
   const { action, address, id, template } = btn.dataset;
 
-  if (action === 'add-found-pools') {
+  if (action === 'add-found-pool') {
+    const p = localPoolTemplates[template];
+    if (!p) return;
     btn.disabled = true;
-    const added = [];
-    for (const p of foundPools) {
-      try {
-        await api('/api/pools', { method: 'POST', body: JSON.stringify({ label: p.label, host: p.host, port: p.port }) });
-        added.push(p);
-      } catch (err) {
-        showToast(`Could not add ${p.label}: ${err.message}`, 'error');
-      }
+    try {
+      await api('/api/pools', { method: 'POST', body: JSON.stringify({ label: p.label, host: p.host, port: p.port }) });
+      showToast(`Added ${p.label} to Stratum Race.`, 'success');
+      // As the form says it: DATUM sends no work until it has an address.
+      document.getElementById('pool-add-result').textContent = template === 'datum'
+        ? 'DATUM sends work only once a Bitcoin address is set in its Config tab.' : '';
+    } catch (err) {
+      showToast(`Could not add ${p.label}: ${err.message}`, 'error');
     }
     btn.disabled = false;
-    // Offered once: a pool added here and removed later is not offered again.
-    // One that could not be added stays on offer.
-    const dismissed = dismissedPools();
-    added.forEach((p) => dismissed.add(p.key));
-    try { localStorage.setItem(POOLS_DISMISSED_KEY, JSON.stringify([...dismissed])); } catch { /* private window */ }
-    if (added.length) showToast(`Added ${listLabels(added.map((p) => p.label))} to Stratum Race.`, 'success');
+    // The list is cached for five minutes on the server, but "added" is
+    // worked out fresh from the pools on every call.
     await refreshLocalPools();
     refreshPools();
-    return;
-  }
-  if (action === 'dismiss-found-pools') {
-    const dismissed = dismissedPools();
-    foundPools.forEach((p) => dismissed.add(p.key));
-    try { localStorage.setItem(POOLS_DISMISSED_KEY, JSON.stringify([...dismissed])); } catch { /* private window: shows again next time */ }
-    document.getElementById('pool-found').hidden = true;
     return;
   }
   if (action === 'fill-pool-template') {
@@ -1979,6 +1970,8 @@ document.body.addEventListener('click', async (e) => {
     if (action === 'delete-pool') {
       await api(`/api/pools/${id}`, { method: 'DELETE' });
       showToast('Pool removed.', 'success');
+      // A removed pool app is marked "✓ found" again at once.
+      localPoolsAtMs = 0;
     }
 
     // The Slot Fill log notes a hand-made change at once; without this it would

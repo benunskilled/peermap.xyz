@@ -394,6 +394,8 @@ table.peers.aligned { table-layout: fixed; }
 /* A peer that has brought a block: its address in green. Only the address - whole green
    rows were a lot of colour for one bit. The orange of the newest block's deliverer stays a row. */
 .peers tr.delivered-ever .addr-txt { color: #56d364; }
+/* "through the Tor proxy" is no address: it stays grey. */
+.peers tr.delivered-ever .addr-txt.via { color: var(--faint); }
 /* The newest block's deliverer, while its star is up - the same two minutes. */
 .peers tr.delivered-now td { background: rgba(247,147,26,.13); }
 
@@ -496,6 +498,8 @@ table.peers.aligned { table-layout: fixed; }
    whatever is left over. */
 .peers td.peer small.sub { max-width: 320px; }
 .addr-txt { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--faint); }
+/* "through the Tor proxy" in place of an address: words, not an address. */
+.addr-txt.via { font: inherit; font-size: 13px; }
 /* The pill hangs left by its own padding, so its words start where the line under it does. */
 .peers .kind { margin-left: -9px; display: inline-block; max-width: 260px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; font-size: 12px; padding: 2px 9px; border-radius: 999px; background: #1a2430; color: var(--text); }
 .peers .kind.first { background: rgba(31,191,171,.12); color: #7fe3d6; }
@@ -565,7 +569,8 @@ table.peers.aligned { table-layout: fixed; }
 @media (prefers-reduced-motion: reduce) { .sync-ico { animation: none; } }
 .chip.count.syncing, .kinds .chip.syncing { color: #7fe3d6; cursor: help; }
 .chip.syncing .sync-ico { color: #7fe3d6; }
-button.chip.syncing { cursor: pointer; }
+/* A syncing chip that filters is a button like every other kind chip: the hand, not help. */
+button.chip.syncing, .kinds button.chip.syncing { cursor: pointer; }
 
 /* A peer opens with everything known of it on a tap or a click: a row of its
    own under the peer, as wide as the table. Its content is 0 wide and as wide as
@@ -637,7 +642,7 @@ button.b-peer:hover { text-decoration-style: solid; }
 .block-wait { margin: 0; padding: 12px 16px; color: var(--muted); font-size: 14px; }
 @keyframes arrived { from { background-color: rgba(247, 147, 26, .16); } }
 /* Scrolling back up on a phone: the sections, a tap away. */
-.jump-bar { position: fixed; z-index: 30; left: 50%; top: 8px; transform: translate(-50%, calc(-100% - 16px)); display: flex; gap: 4px; padding: 4px; border-radius: 999px; background: rgba(17, 24, 32, .92); border: 1px solid var(--border); box-shadow: 0 4px 16px rgba(0, 0, 0, .35); transition: transform .2s ease; max-width: calc(100vw - 16px); }
+.jump-bar { position: fixed; z-index: 30; left: 50%; top: 8px; transform: translate(-50%, calc(-100% - 16px)); display: flex; gap: 4px; padding: 4px; border-radius: 999px; background: rgb(17, 24, 32); border: 1px solid var(--border); box-shadow: 0 4px 16px rgba(0, 0, 0, .35); transition: transform .2s ease; max-width: calc(100vw - 16px); }
 /* --jump-top: below the open inbound list's bar while that is pinned
    (3-render.js). Only in the shown state: hidden, the bar stays off-screen
    whatever it is, and does not flash over the bar as that pins. */
@@ -785,11 +790,18 @@ body { padding-bottom: var(--bars-h, 0px); }
   .cards.cards .peers tr.weak .pc .pc-land { color: var(--muted); font-weight: 500; }
   .cards.cards .pc .pc-land .flag { display: inline-block; width: 22px; margin-right: 7px; font-size: 15px; line-height: 1; text-align: center; vertical-align: -1px; }
   .cards.cards .pc .pc-sub2 { font-size: 12px; color: var(--muted); padding-left: 29px; }
-  .cards.cards .pc .pc-net { font-size: 12px; color: var(--muted); }
+  /* As in the table: the marks in a slot of their own and the pill's words over the
+     provider, so a mark does not push one pill out of line with the others. The slot
+     holds two marks, 🔒 ⚡ being common, in WebKit's wider emoji too; only the rare
+     third widens it. The words start 6px past the slot (the gap, less the 9px the
+     row hangs left, plus the pill's own 9px). */
+  .cards.cards .pc { --mark-slot: 42px; }
+  .cards.cards .pc .pc-net { font-size: 12px; color: var(--muted); padding-left: calc(var(--mark-slot) + 6px); }
   /* Every card one height: a mark or a smaller pill must not add a pixel. */
-  .cards.cards .pc .pc-what { display: flex; align-items: center; gap: 5px; }
-  .cards.cards .pc .pc-what .kind { flex: 0 1 auto; min-width: 0; margin-left: 0; max-width: 100%; line-height: 16px; }
-  .cards.cards .pc .pc-what .hb { flex: none; line-height: 1; font-size: 12px; }
+  .cards.cards .pc > .pc-what { display: grid; grid-template-columns: minmax(var(--mark-slot), max-content) minmax(0, max-content); align-items: center; gap: 6px; margin-left: -9px; }
+  .cards.cards .pc .pc-what .hb-marks { gap: 3px; }
+  .cards.cards .pc .pc-what .kind { min-width: 0; margin-left: 0; max-width: 100%; line-height: 16px; }
+  .cards.cards .pc .pc-what .hb { flex: none; line-height: 1; }
 }
 @container pcards (min-width: 700px) {
   .cards.cards table tr td.k-peer .pc { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 96px 84px; }
@@ -967,7 +979,7 @@ details.card.panel > *:not(summary) { margin-top: 14px; }
 .panel .pill.rotation-now { background: rgba(138,153,168,.15); color: var(--muted); }
 .panel .pill.rotation-trial { background: rgba(247,147,26,.15); color: var(--accent); }
 .panel .pill.rotation-manual { background: rgba(57,135,229,.15); color: #6aa8f0; }
-.panel .pill.rotation-retire { background: rgba(138,153,168,.15); color: var(--muted); }
+.panel .pill.rotation-retire, .panel .pill.rotation-bumped { background: rgba(138,153,168,.15); color: var(--muted); }
 .panel .pill.rotation-disconnect, .panel .pill.rotation-unmanual { background: rgba(138,153,168,.15); color: var(--muted); }
 .panel .pill.rotation-rejected { background: rgba(248,81,73,.15); color: var(--bad, #f85149); }
 /* The Add-a-Peer result line. "not reachable" is a perfectly good answer
@@ -1522,7 +1534,11 @@ details.card.panel summary::before { margin: 0 2px 0 1px; width: 6px; height: 6p
 /* Slot Fill: the regions as switches (15.11.2026). Off, an outline; picked,
    filled orange like the page's other buttons. Under .panel, whose buttons
    are orange by default (the rule above). */
-.region-picks { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+.slot-book { margin-top: 14px; }
+.slot-book p { margin: 0; }
+.slot-book-sum { color: var(--text); }
+.slot-book-pick { margin-top: 12px !important; color: var(--muted); font-size: 13px; }
+.region-picks { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px !important; }
 .panel .region-pick { font-size: 13px; font-weight: 500; color: var(--muted); background: transparent; border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; }
 .panel .region-pick b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
 .panel .region-pick:hover:not(:disabled) { color: var(--text); border-color: var(--muted); }

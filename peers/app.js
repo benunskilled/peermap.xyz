@@ -272,9 +272,12 @@
     tor_hidden: "Tor (address hidden)", i2p_hidden: "I2P (address hidden)",
   }[n] || n || "-");
   const HIDDEN = {
-    ipv6_hidden: { short: "IPv6", tip: "Inbound IPv6 passes through Docker, which puts its own address in place of the peer's." },
-    tor_hidden: { short: "Tor", tip: "Reached through the Tor proxy, which hides the peer's address." },
-    i2p_hidden: { short: "I2P", tip: "Reached through the I2P router, which hides the peer's address." },
+    // via: the row's second line in place of the address shown there, which
+    // is the proxy's own inside the Umbrel and the same for every such peer
+    // (17.11.2026: a list of the proxy's own address and port told a reader nothing).
+    ipv6_hidden: { short: "IPv6", via: "through Docker", tip: "Inbound IPv6 passes through Docker, which puts its own address in place of the peer's." },
+    tor_hidden: { short: "Tor", via: "through the Tor proxy", tip: "Reached through the Tor proxy, which hides the peer's address." },
+    i2p_hidden: { short: "I2P", via: "through the I2P router", tip: "Reached through the I2P router, which hides the peer's address." },
   };
   // The networks without a country have a sign of their own instead of a flag.
   const HIDDEN_FLAG = {
@@ -2232,6 +2235,8 @@
     }
     return p.tell || p.label || probablyOf(p) || (p.about || "").split("\n")[0] || p.subver || "";
   };
+  // The card line on hover: the reason's whole sentence (p.why), a fork's or pruned's meaning.
+  const cardLineWhy = (p, text) => p.fork && text === p.fork ? p.fork_why : text === "pruned" ? PRUNED_WHY : p.why || "";
   const isPruned = (p) => p.kind.startsWith("Node") && !!p.services && p.services.includes("NETWORK_LIMITED") && !p.services.includes("NETWORK");
   const NO_HEADERS_WHY = "This peer has never sent Core a block header, so Core cannot tell which chain it follows";
   function mbText(mb) {
@@ -2457,7 +2462,9 @@
         // than over every cell of the row.
         const got = deliveredNow.has(p.addr) ? "Delivered the newest block first"
           : deliveredEver.has(p.addr) ? "Has delivered a block first" : "";
-        fit(sub, p.addr, got);
+        // Behind a proxy the address is the proxy's: said in words instead.
+        const shownAddr = HIDDEN[p.network] ? HIDDEN[p.network].via : p.addr;
+        fit(sub, shownAddr, got);
         if (deliveredNow.has(p.addr)) {
           const star = document.createElement("span");
           star.className = "star";
@@ -2467,8 +2474,8 @@
         }
         {
           const a = document.createElement("span");
-          a.className = "addr-txt";
-          a.textContent = p.addr;
+          a.className = HIDDEN[p.network] ? "addr-txt via" : "addr-txt";
+          a.textContent = shownAddr;
           sub.appendChild(a);
         }
         text.append(b, sub);
@@ -2487,17 +2494,35 @@
           if (deliveredNow.has(p.addr)) land.append(" ", span("star", "\u2605"));
           const sub = span("pc-sub2");
           if (p.region && p.cc) sub.append(regionName(p.cc) + " ");
-          sub.append(span("addr-txt", p.addr));
+          sub.append(span(HIDDEN[p.network] ? "addr-txt via" : "addr-txt", shownAddr));
           const what = span("pc-what");
           const testing = onTrial(p);
           const label = testing ? "Testing" : p.linking_lion ? "LinkingLion" : p.kind;
           const pill = span("kind " + (testing || p.offline ? "never" : p.linking_lion ? "lion" : p.kind === "Disguised" ? "disg" : p.no_relay ? "never" : "first"),
             (p.no_relay && !testing ? "\u2298 " : "") + label);
           if (testing) pill.title = TRIAL_TITLE;
-          for (const [active, symbol] of [[p.hb_to, "\u26a1"], [p.hb_from, "\ud83d\udce1"], [isLocked(p), "\ud83d\udd12"]]) if (active) what.append(span("hb", symbol));
-          what.append(pill);
+          // The marks in a slot of their own, as in the table: every pill starts in one place, mark or none.
+          const marks = span("hb-marks");
+          for (const [active, symbol, title] of [[p.hb_to, "\u26a1", HB_TITLE], [p.hb_from, "\ud83d\udce1", HB_FROM_TITLE], [isLocked(p), "\ud83d\udd12", LOCKED_TITLE]]) {
+            if (!active) continue;
+            const mark = span("hb", symbol);
+            mark.title = title;
+            mark.setAttribute("role", "img");
+            mark.setAttribute("aria-label", title);
+            marks.append(mark);
+          }
+          what.append(marks, pill);
           // Filled column by column (style.css): each pair is one column of the card.
-          pc.append(land, sub, what, span("pc-net", p.operator || (p.tor_exit ? "Tor exit" : "")));
+          // Under the pill the provider; with a filter on, as on a phone card and in the
+          // table, what the pill does not say (cardLine): in "syncing" how much it took.
+          const net = span("pc-net", p.operator || (p.tor_exit ? "Tor exit" : ""));
+          if (state.group) {
+            const text = cardLine(p) || "\u00a0";
+            net.textContent = text;
+            if (p.sync_mb) net.replaceChildren(syncSpan(p));
+            else fit(net, text, cardLineWhy(p, text));
+          }
+          pc.append(land, sub, what, net);
           // A wider card has room for what a table would have had to drop: how
           // often the peer was first, then ping and time connected. Shown by
           // the card's width; all of it is in the opened row at any width.
@@ -2608,8 +2633,7 @@
           if (p.sync_mb) e.replaceChildren(syncSpan(p));
           // On hover: the whole line where it is cut, and why - the reason's
           // whole sentence (p.why), a fork's or pruned's meaning (fit).
-          const why = p.fork && text === p.fork ? p.fork_why : text === "pruned" ? PRUNED_WHY : p.why || "";
-          if (!p.sync_mb) fit(e, text, why);
+          if (!p.sync_mb) fit(e, text, cardLineWhy(p, text));
           // A second part stays only where it fits whole (fitTables).
           const two = text.split(" \u00b7 ");
           if (two.length > 1) Object.assign(e.dataset, { full: text, one: two[0] });
@@ -3239,7 +3263,7 @@
       const div = document.createElement("div");
       div.className = "leave";
       const a = document.createElement("span");
-      a.textContent = p.addr;
+      a.textContent = HIDDEN[p.network] ? HIDDEN[p.network].via : p.addr;
       div.append(a, " \u00b7 " + p.leaving);
       td.appendChild(div);
       tr.appendChild(td);
